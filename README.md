@@ -1,40 +1,68 @@
-# Tamaraw Time — Web MVP
+# Tamaraw Time — Student Web App (Pilot Upgrade)
 
-A standalone, responsive student time-management web app designed for FEU students. Uses the supplied green, yellow, orange, charcoal and cream palette.
+A responsive, no-installation student time-management app for FEU students. This version adds a **first-use tutorial**, **activity progress logging**, and a **three-active-day feedback form**, while retaining the original schedule, task, commute, and Settings features. The decorative Palette card remains removed.
 
-## Run without Node.js
+## Quick start
 
-1. Extract `tamaraw-time-web.zip`.
-2. Double-click `index.html` to open it in Chrome, Edge, Firefox, or Safari.
-3. Add your own classes and tasks, and configure your commute assumptions.
+1. Extract `Tamaraw_Time_Pilot_Upgrade.zip`.
+2. Open `index.html` with a modern web browser; no Node.js, database or build step is needed.
+3. Complete or skip the five-step first-use walkthrough.
+4. Open **Class Schedule** to enter your subjects, **Tasks & Deadlines** for schoolwork, and **Commute Planner** to configure your expected journey and leave-by time.
+5. Select **My Progress** to see the activity log, days of use, and three-day feedback status.
 
-No npm installation, build tooling, or internet connection is required for the basic functionality. Internet connectivity is required to open Google Maps.
+For consistent use across multiple days, hosting the app via **GitHub Pages** (HTTPS) is recommended, rather than opening different downloaded files on different devices. Keep using the **same device, browser and site address** for the pilot.
 
-## Features
+## New in this version
 
-- Home dashboard with the next class, pending tasks, and a departure recommendation.
-- Weekly recurring class schedule: add/delete classes.
-- Task and deadline tracker: add, complete and delete tasks.
-- Smart departure time and wake-up time estimation using *user-entered* commute, preparation, and buffer minutes.
-- One-click Google Maps navigation to selected FEU campus.
-- Optional GPS check using the browser's Geolocation API (typically requires HTTPS or localhost).
-- Local persistence via `localStorage` and JSON export.
-- Responsive desktop/mobile interface, no backend required.
+### 1. First-use tutorial
+- A five-step onboarding popup appears automatically when there is no prior completion flag.
+- Explains the dashboard, classes, tasks, commute plan, and the 3-day testing process.
+- **Next**, **Back**, **Skip** and **Start using app** controls.
+- Replay anytime from **Settings → Replay app tutorial**.
 
-## Limitations
+### 2. Activity tracking
+- Logs local timestamps when users **add/delete classes**, **add/complete/reopen/delete tasks**, **change preference or commute values**, **open Google Maps**, or **successfully check GPS**.
+- Passive page visits, opening the walkthrough, exporting data, and saving unchanged settings **do not** count as active use.
+- Counts **distinct local calendar dates** with at least one qualifying event, not number of site opens or consecutive days.
+- Shows active-day milestone cards, action count, current task completions, and a recent activity list.
+- Available exports: CSV with dated activity events and JSON containing the entire local state plus any saved pilot feedback.
 
-- **No live traffic ETA:** Maps opens externally but the departure estimate is calculated from the journey minutes you enter.
-- **No real push alarms:** Regular browser tabs cannot guarantee alarm-clock notifications, especially while closed. Reminder notifications require a service worker, secure context and appropriate permissions; native-grade alarms would require a mobile-specific implementation.
-- **No cloud sync or FEU portal integration.** Browser-stored data is device/browser-specific and can disappear if site data is cleared.
-- **Geolocation may not work when opened as a local `file://` page.** Use an HTTPS host or local server for GPS access.
-- Demo data is illustrative, not an official FEU timetable.
+### 3. Feedback eligibility
+- The in-app research feedback form becomes available after **three distinct active days** (not necessarily consecutive).
+- Collects optional anonymous respondent code, overall experience (1–5), ease of use (1–5), most helpful feature, and written suggestions.
+- Feedback is **saved locally only**. A student needs to export the JSON and share it with the research group; saving the form does **not** submit it to an online server.
 
-## Deployment (optional)
+## Suggested 3-day pilot instructions for class
 
-Upload `index.html`, `styles.css`, and `app.js` together to any static host (e.g., GitHub Pages, Netlify). No build step is necessary.
+- **Day 1:** Open Tamaraw Time, view the tutorial, add your actual class timetable, and/or add a task.
+- **Day 2:** Use a feature such as marking a task complete, adding another assignment, or planning a route.
+- **Day 3:** Use the app again, confirm **My Progress** shows at least three active dates, complete the feedback form, and export the full JSON record.
 
-## Files
+Use the app naturally rather than clicking actions solely to earn participation credit. **Only include feedback respondents who actually used the app.** The app records local activity but **cannot independently verify identity or authenticity**. The study team should confirm its participant inclusion criteria separately and note the limitations of self-stored logs.
 
-- `index.html` — App structure
-- `styles.css` — Responsive visual design and color tokens
-- `app.js` — UI, data persistence, calendar/task logic and commute calculator
+## Storage and privacy
+
+Data (classes, tasks, settings, walkthrough completion, activity logs, and feedback) is stored in your browser via `localStorage`. No analytics service, server, cloud sync or automatic researcher submission is provided. Deleting site data, resetting the app, or switching browsers/devices will erase or separate records. Existing data under the prior app storage key is retained when upgrading on the **same website/browser**.
+
+Avoid entering sensitive personal data or complete names in research respondent codes. Exported files may contain task titles, class names, and student settings; handle shared JSON files accordingly. Local browser data and exports can be modified and are **not audit-proof**.
+
+## Existing features and limitations
+
+- Dashboard: next class, pending work, preparation/departure recommendations.
+- Weekly class timetable; task tracking with deadline, priority, and completion.
+- Commute planner: manual estimated minutes, preparation, and arrival buffer; Google Maps routing and optional GPS check.
+- No live traffic ETA; Maps may use location permission but doesn't supply live travel time back to the app.
+- No system-level alarm or guaranteed push notifications.
+- GPS generally requires HTTPS or localhost. Basic use works offline, but Google Maps requires connectivity.
+- No FEU portal integration or online user accounts.
+
+## GitHub Pages deployment
+
+Replace the existing root files with `index.html`, `styles.css`, and `app.js`, commit them to the Pages publishing branch/folder, and visit your existing site URL. Keep all three files together. Existing users should refresh the page. The index includes versioned asset references to help avoid stale cached JavaScript.
+
+## Included files
+
+- `index.html`: shell, navigation, forms, tutorial dialog
+- `styles.css`: visual styles, responsive layout, tutorials, progress elements
+- `app.js`: app features, logging, onboarding, export and feedback logic
+- `README.md`: this usage, testing, and deployment guide
