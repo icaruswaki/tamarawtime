@@ -1,68 +1,59 @@
-# Tamaraw Time — Student Web App (Pilot Upgrade)
+# Tamaraw Time — Cloud Pilot v3
 
-A responsive, no-installation student time-management app for FEU students. This version adds a **first-use tutorial**, **activity progress logging**, and a **three-active-day feedback form**, while retaining the original schedule, task, commute, and Settings features. The decorative Palette card remains removed.
+A multi-device student planner and three-day usability pilot for FEU students. It runs on GitHub Pages and stores student planner information and feedback **in a Supabase cloud database**, not in localStorage. Individual email/password accounts are used for access.
 
-## Quick start
+## What is included
 
-1. Extract `Tamaraw_Time_Pilot_Upgrade.zip`.
-2. Open `index.html` with a modern web browser; no Node.js, database or build step is needed.
-3. Complete or skip the five-step first-use walkthrough.
-4. Open **Class Schedule** to enter your subjects, **Tasks & Deadlines** for schoolwork, and **Commute Planner** to configure your expected journey and leave-by time.
-5. Select **My Progress** to see the activity log, days of use, and three-day feedback status.
+- `index.html`: app UI, registration, sign-in, onboarding, settings, planner, study feedback.
+- `styles.css`: FEU-themed responsive desktop/mobile interface.
+- `app.js`: planner, tutorial, progress tracking, cloud save integration.
+- `cloud-store.js`: Supabase API integration; private student rows.
+- `cloud-config.js`: **must be configured** with your Supabase project URL and **publishable** (public client) key.
+- `schema.sql`: creates secure tables, Row-Level Security (RLS) policies, and database-enforced 3-day feedback eligibility.
+- `research-summary.sql`: optional research report query, for the **Supabase SQL Editor only**, not the public website.
 
-For consistent use across multiple days, hosting the app via **GitHub Pages** (HTTPS) is recommended, rather than opening different downloaded files on different devices. Keep using the **same device, browser and site address** for the pilot.
+## Quick setup (GitHub Pages + Supabase)
 
-## New in this version
+1. Create a project at <https://supabase.com/dashboard>. Choose a database region; set a strong dashboard/database password.
+2. Open **SQL Editor > New query**. Paste `schema.sql`, then click **Run** **once**. It creates the student planner, action logs, and feedback tables.
+3. Open your project **Connect** or **Project Settings > API Keys** and locate the **Project URL** and **publishable** key (`sb_publishable_...`). If your project still displays a legacy `anon` public key, it can also be used. **Do not use a `secret` or `service_role` key in browser code.**
+4. Open `cloud-config.js`. Replace the two placeholder values with your project URL and publishable key. These are designed to be public; access control is enforced by database RLS.
+5. Under **Authentication > Providers**, enable Email authentication. For real pilot respondents, leave email confirmations enabled. Depending on your project settings, email verification may be required on sign-up. Configure **Authentication > URL Configuration**: set **Site URL** to your published GitHub Pages URL, and add its URL as an allowed Redirect URL so confirmation links return to the app.
+6. Upload all five website files (`index.html`, `styles.css`, `app.js`, `cloud-store.js`, `cloud-config.js`; plus `README.md` if desired) to your GitHub Pages repository. You do **not** need to publish `schema.sql` or `research-summary.sql` (they are safe to include but not needed by the website). Wait for GitHub Pages to redeploy, then reload the site.
+7. Register one test student account, check email if confirmation is required, log in, complete onboarding, create a real task, and reload or log in on another device to verify that the task remains.
 
-### 1. First-use tutorial
-- A five-step onboarding popup appears automatically when there is no prior completion flag.
-- Explains the dashboard, classes, tasks, commute plan, and the 3-day testing process.
-- **Next**, **Back**, **Skip** and **Start using app** controls.
-- Replay anytime from **Settings → Replay app tutorial**.
+GitHub Pages hosts only static files. **Before completing steps 1–6, the app cannot save cloud data; the login screen intentionally shows an explanation instead of pretending data is saved.** This package is ready to configure but is not connected to your Supabase account.
 
-### 2. Activity tracking
-- Logs local timestamps when users **add/delete classes**, **add/complete/reopen/delete tasks**, **change preference or commute values**, **open Google Maps**, or **successfully check GPS**.
-- Passive page visits, opening the walkthrough, exporting data, and saving unchanged settings **do not** count as active use.
-- Counts **distinct local calendar dates** with at least one qualifying event, not number of site opens or consecutive days.
-- Shows active-day milestone cards, action count, current task completions, and a recent activity list.
-- Available exports: CSV with dated activity events and JSON containing the entire local state plus any saved pilot feedback.
+## Three-day feedback eligibility
 
-### 3. Feedback eligibility
-- The in-app research feedback form becomes available after **three distinct active days** (not necessarily consecutive).
-- Collects optional anonymous respondent code, overall experience (1–5), ease of use (1–5), most helpful feature, and written suggestions.
-- Feedback is **saved locally only**. A student needs to export the JSON and share it with the research group; saving the form does **not** submit it to an online server.
+- Students must sign in and perform at least one meaningful action on **three distinct Philippine calendar dates**. The dates need not be consecutive.
+- Meaningful actions include adding/deleting classes or tasks, completing tasks, saving changed commute/preference settings, opening Google Maps, and successful GPS checks. Merely visiting the website or viewing the tutorial doesn't count.
+- The server records event timestamps; the browser cannot select or edit `occurred_at` via the public API, and ordinary student accounts cannot delete or alter those logs.
+- The **3-day rule is also checked by a database policy** whenever a feedback record is submitted, not just by hiding the feedback form in the browser.
+- A person could still intentionally manufacture actions across three days. This is evidence supporting research screening, **not proof of real-world attendance, attention or identity**. Your team must still screen participants according to your professor's instruction.
 
-## Suggested 3-day pilot instructions for class
+## Reviewing the pilot
 
-- **Day 1:** Open Tamaraw Time, view the tutorial, add your actual class timetable, and/or add a task.
-- **Day 2:** Use a feature such as marking a task complete, adding another assignment, or planning a route.
-- **Day 3:** Use the app again, confirm **My Progress** shows at least three active dates, complete the feedback form, and export the full JSON record.
+Only the project administrators can review all respondents in the Supabase dashboard. Students cannot access each other's data.
 
-Use the app naturally rather than clicking actions solely to earn participation credit. **Only include feedback respondents who actually used the app.** The app records local activity but **cannot independently verify identity or authenticity**. The study team should confirm its participant inclusion criteria separately and note the limitations of self-stored logs.
+1. Open Supabase > **Table Editor** to inspect `activity_events` and `feedback` after testing.
+2. Or run `research-summary.sql` in **SQL Editor** to see a participant-level summary of active days, logged actions and ratings.
+3. Save or export records through the dashboard according to your approved research consent and data-retention plan.
 
-## Storage and privacy
+The progress screen has an optional CSV or JSON export for a **student's own record**; participants no longer need to manually export files just to submit feedback. Feedback is online as soon as it is saved.
 
-Data (classes, tasks, settings, walkthrough completion, activity logs, and feedback) is stored in your browser via `localStorage`. No analytics service, server, cloud sync or automatic researcher submission is provided. Deleting site data, resetting the app, or switching browsers/devices will erase or separate records. Existing data under the prior app storage key is retained when upgrading on the **same website/browser**.
+## Storage, privacy, and limitations
 
-Avoid entering sensitive personal data or complete names in research respondent codes. Exported files may contain task titles, class names, and student settings; handle shared JSON files accordingly. Local browser data and exports can be modified and are **not audit-proof**.
+- Planner items, activity logs, tutorial completion and feedback are persisted **online** in Supabase, identified by a user account.
+- Supabase Auth may store a local **login session token**, to remember the sign-in. That is different from saving the planner data in the browser. The app doesn't write planner items to localStorage.
+- The project owners should collect informed consent, disclose the study purpose and data collected, limit who can view results, and define when they will delete test data. Students should avoid entering confidential/personal information into task names or written feedback.
+- **Reset planner only** clears classes, tasks and preferences while preserving the study activity history and feedback. No student-facing action deletes research logs. If deletion is needed, a project administrator must handle it through Supabase under the agreed privacy policy.
+- Without access to an actual Supabase project, the app's cloud requests cannot be integration-tested end to end. JavaScript syntax/static checks and UI mock tests do not substitute for validating your live database and email confirmations.
+- Route ETA is still based on a user-entered estimate; Google Maps opens an external route. No live Google Maps travel-time integration has been added.
+- This version uses a simple cloud-saved JSON planner per user. If the same account makes conflicting edits on two devices at exactly the same time, the **last save wins**. Avoid editing on two devices simultaneously during pilot testing.
 
-## Existing features and limitations
+## Developer references
 
-- Dashboard: next class, pending work, preparation/departure recommendations.
-- Weekly class timetable; task tracking with deadline, priority, and completion.
-- Commute planner: manual estimated minutes, preparation, and arrival buffer; Google Maps routing and optional GPS check.
-- No live traffic ETA; Maps may use location permission but doesn't supply live travel time back to the app.
-- No system-level alarm or guaranteed push notifications.
-- GPS generally requires HTTPS or localhost. Basic use works offline, but Google Maps requires connectivity.
-- No FEU portal integration or online user accounts.
-
-## GitHub Pages deployment
-
-Replace the existing root files with `index.html`, `styles.css`, and `app.js`, commit them to the Pages publishing branch/folder, and visit your existing site URL. Keep all three files together. Existing users should refresh the page. The index includes versioned asset references to help avoid stale cached JavaScript.
-
-## Included files
-
-- `index.html`: shell, navigation, forms, tutorial dialog
-- `styles.css`: visual styles, responsive layout, tutorials, progress elements
-- `app.js`: app features, logging, onboarding, export and feedback logic
-- `README.md`: this usage, testing, and deployment guide
+- Supabase JavaScript client: <https://supabase.com/docs/reference/javascript/initializing>
+- Row Level Security: <https://supabase.com/docs/guides/database/postgres/row-level-security>
+- Authentication: <https://supabase.com/docs/guides/auth>

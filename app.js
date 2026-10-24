@@ -1,15 +1,27 @@
 'use strict';
-const KEY='tamaraw-time-web-v1';
 const $=q=>document.querySelector(q);
+const uid=()=>globalThis.crypto?.randomUUID?.() || 'tt-'+Date.now()+'-'+Math.random().toString(36).slice(2);
 const days=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-const defaults={classes:[{id:'demo-class',name:'Data Structures',day:1,time:'09:00',end:'10:30',room:'Room 401',campus:'FEU Tech'}],tasks:[{id:'demo-task',title:'Review Java OOP',subject:'Programming',deadline:'',priority:'Medium',done:false}],settings:{name:'Tamaraw',campus:'FEU Tech',travel:55,prep:45,buffer:15,mode:'Transit'}};
-let state;try{let val=JSON.parse(localStorage.getItem(KEY));state=val&&Array.isArray(val.classes)&&Array.isArray(val.tasks)&&val.settings?val:structuredClone(defaults)}catch{state=structuredClone(defaults)}
-// Progress and onboarding were added in v2 without changing the old storage key.
-// Existing classes, tasks and preferences survive the upgrade.
-if(!state.tracker || !Array.isArray(state.tracker.events)) state.tracker={events:[]};
-if(!state.onboarding || typeof state.onboarding.finished!=='boolean') state.onboarding={finished:false};
-if(!state.feedback || typeof state.feedback!=='object') state.feedback=null;
-let page='home';const save=()=>localStorage.setItem(KEY,JSON.stringify(state));
+const defaults={classes:[],tasks:[],settings:{name:'Tamaraw',campus:'FEU Tech',travel:55,prep:45,buffer:15,mode:'Transit'}};
+let state={...structuredClone(defaults),tracker:{events:[]},onboarding:{finished:false},feedback:null};
+let page='home', loadedFor=null, authCounter=0;
+let writeQueue=Promise.resolve();
+function payload(){return {classes:structuredClone(state.classes),tasks:structuredClone(state.tasks),settings:structuredClone(state.settings),onboarding:structuredClone(state.onboarding)}}
+function persist(eventType=null){
+ const snapshot=payload();
+ const next=writeQueue.catch(()=>{}).then(async()=>{
+  await CloudStore.savePayload(snapshot);
+  if(eventType){
+   const event=await CloudStore.logEvent(eventType);
+   state.tracker.events.push(event);
+   if(page==='progress'||page==='home')render();
+  }
+ });
+ writeQueue=next;
+ next.catch(err=>toast('Cloud save failed: '+(err.message||err)));
+ return next;
+}
+const save=()=>persist();
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const stamp=(s)=>s?new Date(s+'T23:59:59'):null;
 const fmtDate=d=>d.toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric'});
@@ -21,31 +33,30 @@ const upcoming=()=>state.classes.map(c=>({...c,when:nextDate(c)})).sort((a,b)=>a
 const due=()=>state.tasks.filter(t=>!t.done).sort((a,b)=>(a.deadline||'9999').localeCompare(b.deadline||'9999'));
 const resultFor=(c)=>{let st=asMinutes(c.time),s=state.settings;return{departure:minutesToTime(st-Number(s.travel)-Number(s.buffer)),wake:minutesToTime(st-Number(s.travel)-Number(s.buffer)-Number(s.prep)),arrival:minutesToTime(st-Number(s.buffer))}};
 const status=t=>{if(t.done)return ['Completed','gray'];if(!t.deadline)return ['No deadline','gray'];let left=Math.ceil((stamp(t.deadline)-new Date())/86400000);return left<=0?['Due today / overdue','urgent']:left<=2?['Due soon','urgent']:[fmtDate(stamp(t.deadline)),'']};
-// Only intentional app actions count towards active days; page views or opening
-// the tutorial do not count. All evidence is stored locally (not verified).
-const localDate = (dt=new Date()) => `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
-const validEvents = new Set(['task_added','task_completed','task_reopened','task_deleted','class_added','class_deleted','commute_saved','settings_saved','maps_opened','gps_checked']);
+// A student day is counted only after a meaningful action is logged on the
+// cloud database. The backend supplies action timestamps (Asia/Manila dates).
+const validEvents=new Set(['task_added','task_completed','task_reopened','task_deleted','class_added','class_deleted','commute_saved','settings_saved','maps_opened','gps_checked']);
 const actionNames={task_added:'Added a task',task_completed:'Completed a task',task_reopened:'Reopened a task',task_deleted:'Deleted a task',class_added:'Added a class',class_deleted:'Deleted a class',commute_saved:'Updated commute plan',settings_saved:'Updated preferences',maps_opened:'Opened route in Maps',gps_checked:'Checked location with GPS'};
-function track(type){if(!validEvents.has(type)) return;const now=new Date();state.tracker.events.push({at:now.toISOString(),day:localDate(now),type});save()}
+function track(type){if(!validEvents.has(type))return Promise.resolve();return persist(type)}
 const activityDays=()=>[...new Set(state.tracker.events.filter(e=>validEvents.has(e.type)&&/^\d{4}-\d{2}-\d{2}$/.test(e.day)).map(e=>e.day))].sort();
 const eligibleForFeedback=()=>activityDays().length>=3;
 function downloadText(filename,content,mime){const url=URL.createObjectURL(new Blob([content],{type:mime}));const link=document.createElement('a');link.href=url;link.download=filename;link.click();setTimeout(()=>URL.revokeObjectURL(url),3000)}
-function exportProgressCSV(){const quote=x=>'"'+String(x??'').replace(/"/g,'""')+'"';const rows=[['Date','Time (device-local)','Activity','Description']];for(const e of state.tracker.events){if(!validEvents.has(e.type))continue;const t=new Date(e.at);rows.push([e.day,Number.isNaN(t.getTime())?'':t.toLocaleTimeString('en-PH'),e.type,actionNames[e.type]||e.type])}const content=rows.map(r=>r.map(quote).join(',')).join('\r\n');downloadText('tamaraw-time-activity.csv',content,'text/csv;charset=utf-8')}
+function exportProgressCSV(){const quote=x=>'"'+String(x??'').replace(/"/g,'""')+'"';const rows=[['Date (Philippines)','Time (Philippines)','Activity','Description']];for(const e of state.tracker.events){if(!validEvents.has(e.type))continue;const t=new Date(e.at);rows.push([e.day,Number.isNaN(t.getTime())?'':t.toLocaleTimeString('en-PH',{timeZone:'Asia/Manila'}),e.type,actionNames[e.type]||e.type])}const content=rows.map(r=>r.map(quote).join(',')).join('\r\n');downloadText('tamaraw-time-activity.csv',content,'text/csv;charset=utf-8')}
 function progressPanel(){
  const ds=activityDays(),count=ds.length,n=Math.min(count,3),entries=[...state.tracker.events].filter(e=>validEvents.has(e.type)).reverse(),qualified=eligibleForFeedback();
  const marks=Array.from({length:3},(_,i)=>`<div class="day-step ${i<n?'checked':''}"><div class="day-icon">${i<n?'✓':i+1}</div><b>Active day ${i+1}</b><small>${ds[i]?esc(fmtDate(new Date(ds[i]+'T12:00:00'))):'Not recorded yet'}</small></div>`).join('');
- const activityRows=entries.slice(0,15).map(e=>`<div class="item"><div><b>${esc(actionNames[e.type]||e.type)}</b><small>${esc(fmtDate(new Date(e.day+'T12:00:00')))} · ${esc(new Date(e.at).toLocaleTimeString('en-PH',{hour:'numeric',minute:'2-digit'}))}</small></div>${badge('Logged')}</div>`).join('');
+ const activityRows=entries.slice(0,15).map(e=>`<div class="item"><div><b>${esc(actionNames[e.type]||e.type)}</b><small>${esc(fmtDate(new Date(e.day+'T12:00:00')))} · ${esc(new Date(e.at).toLocaleTimeString('en-PH',{timeZone:'Asia/Manila',hour:'numeric',minute:'2-digit'}))}</small></div>${badge('Logged')}</div>`).join('');
  const f=state.feedback||{};
- const feedback=qualified?`<div class="card" id="feedback-card"><div class="section-head" style="margin:0 0 10px"><h2>3-day app feedback</h2>${state.feedback?badge('Saved'):badge('Ready')}</div><p class="muted mini">For students who have actively used Tamaraw Time on at least 3 different dates. Answers stay on this device until you export them.</p><form id="feedback-form"><div class="field"><label for="feedback-code">Respondent code (optional; avoid your full name)</label><input id="feedback-code" name="code" maxlength="30" placeholder="e.g. STUDENT-01" value="${esc(f.code||'')}"></div><div class="formgrid"><div class="field"><label for="feedback-overall">Overall experience *</label><select required id="feedback-overall" name="overall"><option value="">Select 1–5</option>${[1,2,3,4,5].map(i=>`<option value="${i}" ${String(f.overall)===String(i)?'selected':''}>${i} / 5</option>`).join('')}</select></div><div class="field"><label for="feedback-ease">Ease of use *</label><select required id="feedback-ease" name="ease"><option value="">Select 1–5</option>${[1,2,3,4,5].map(i=>`<option value="${i}" ${String(f.ease)===String(i)?'selected':''}>${i} / 5</option>`).join('')}</select></div></div><div class="field"><label for="feedback-feature">Most useful feature *</label><select required id="feedback-feature" name="feature"><option value="">Choose one</option>${['Class schedule','Tasks and deadlines','Commute planner','Progress tracker'].map(s=>`<option ${f.feature===s?'selected':''}>${esc(s)}</option>`).join('')}</select></div><div class="field"><label for="feedback-comments">What should we improve? *</label><textarea required name="comments" id="feedback-comments" maxlength="1000" placeholder="Tell us which features you tried and what could work better.">${esc(f.comments||'')}</textarea></div><button type="submit" class="primary">${state.feedback?'Update feedback':'Save my feedback'}</button></form>${state.feedback?`<p class="mini muted">Last saved: ${esc(new Date(state.feedback.savedAt).toLocaleString('en-PH'))}. Export your JSON file to share the feedback with your researchers.</p>`:''}</div>`:
+ const feedback=qualified?`<div class="card" id="feedback-card"><div class="section-head" style="margin:0 0 10px"><h2>3-day app feedback</h2>${state.feedback?badge('Saved'):badge('Ready')}</div><p class="muted mini">For students who have actively used Tamaraw Time on at least 3 different dates. Your feedback is securely saved to your student account online.</p><form id="feedback-form"><div class="field"><label for="feedback-code">Respondent code (optional; avoid your full name)</label><input id="feedback-code" name="code" maxlength="30" placeholder="e.g. STUDENT-01" value="${esc(f.code||'')}"></div><div class="formgrid"><div class="field"><label for="feedback-overall">Overall experience *</label><select required id="feedback-overall" name="overall"><option value="">Select 1–5</option>${[1,2,3,4,5].map(i=>`<option value="${i}" ${String(f.overall)===String(i)?'selected':''}>${i} / 5</option>`).join('')}</select></div><div class="field"><label for="feedback-ease">Ease of use *</label><select required id="feedback-ease" name="ease"><option value="">Select 1–5</option>${[1,2,3,4,5].map(i=>`<option value="${i}" ${String(f.ease)===String(i)?'selected':''}>${i} / 5</option>`).join('')}</select></div></div><div class="field"><label for="feedback-feature">Most useful feature *</label><select required id="feedback-feature" name="feature"><option value="">Choose one</option>${['Class schedule','Tasks and deadlines','Commute planner','Progress tracker'].map(s=>`<option ${f.feature===s?'selected':''}>${esc(s)}</option>`).join('')}</select></div><div class="field"><label for="feedback-comments">What should we improve? *</label><textarea required name="comments" id="feedback-comments" maxlength="1000" placeholder="Tell us which features you tried and what could work better.">${esc(f.comments||'')}</textarea></div><button type="submit" class="primary">${state.feedback?'Update feedback':'Save my feedback'}</button></form>${state.feedback?`<p class="mini muted">Last saved: ${esc(new Date(state.feedback.savedAt).toLocaleString('en-PH'))}. Your answers are stored in the study database.</p>`:''}</div>`:
  `<div class="card"><h2>3-day app feedback</h2><p class="muted">Feedback opens after 3 different active days. You need <b>${3-n} more active ${3-n===1?'day':'days'}</b>. You can use the app on any three dates—they do not need to be consecutive.</p><p class="mini muted">To count a day, do something in the app such as adding/completing a task, adding a class, changing your commute, or opening Maps.</p></div>`;
- return `<div class="card progress-hero"><div class="progress-hero-head"><div><span class="mini progress-kicker">PILOT TESTING · LOCAL RECORD</span><h2>Your 3-day activity journey</h2><p>${qualified?'You have recorded activity on at least three different days. Your feedback form is available.':'Use the planner on 3 different calendar days before answering the class feedback survey.'}</p></div>${badge(qualified?'3 active days reached':`${n} of 3 days`)} </div><div class="progress-bar" role="progressbar" aria-label="Active days progress" aria-valuemin="0" aria-valuemax="3" aria-valuenow="${n}"><div style="width:${n*100/3}%"></div></div><div class="day-steps">${marks}</div><p class="mini progress-footnote">An active day requires an action—not just opening the website. Dates are based on this device's local calendar. This is a self-stored record, not independently verified proof of attendance or identity.</p></div><div class="grid three" style="margin-top:19px"><div class="card stat"><div class="label">ACTIVE DAYS</div><div class="value">${count}</div><div class="note">Distinct dates with app actions</div></div><div class="card stat"><div class="label">ACTIONS LOGGED</div><div class="value">${entries.length}</div><div class="note">Since tracking was added</div></div><div class="card stat"><div class="label">TASKS COMPLETED</div><div class="value">${state.tasks.filter(t=>t.done).length}</div><div class="note">Current task list</div></div></div><div class="grid two" style="margin-top:19px"><div class="card"><div class="section-head" style="margin:0 0 12px"><h2>Recent activity</h2></div>${activityRows||'<div class="empty">No actions recorded yet. Add or complete a task to get started!</div>'}<div class="progress-download"><button class="secondary" data-action="export-progress">Export activity (CSV)</button><button class="secondary" data-action="export">Export full record (JSON)</button></div></div>${feedback}</div><div class="alert" style="margin-top:16px">Research note: Only include respondents who actually used the app. Activity tracking starts with this version, is limited to this browser and can be cleared or altered by the user. Exports are supporting self-reported usage records, not independent verification.</div>`;
+ return `<div class="card progress-hero"><div class="progress-hero-head"><div><span class="mini progress-kicker">PILOT TESTING · CLOUD RECORD</span><h2>Your 3-day activity journey</h2><p>${qualified?'You have recorded activity on at least three different days. Your feedback form is available.':'Use the planner on 3 different calendar days before answering the class feedback survey.'}</p></div>${badge(qualified?'3 active days reached':`${n} of 3 days`)} </div><div class="progress-bar" role="progressbar" aria-label="Active days progress" aria-valuemin="0" aria-valuemax="3" aria-valuenow="${n}"><div style="width:${n*100/3}%"></div></div><div class="day-steps">${marks}</div><p class="mini progress-footnote">An active day requires an action—not just opening the website. Days use Philippine calendar dates from server timestamps. Logs help document activity but cannot prove that a real person completed each action.</p></div><div class="grid three" style="margin-top:19px"><div class="card stat"><div class="label">ACTIVE DAYS</div><div class="value">${count}</div><div class="note">Distinct dates with app actions</div></div><div class="card stat"><div class="label">ACTIONS LOGGED</div><div class="value">${entries.length}</div><div class="note">Since tracking was added</div></div><div class="card stat"><div class="label">TASKS COMPLETED</div><div class="value">${state.tasks.filter(t=>t.done).length}</div><div class="note">Current task list</div></div></div><div class="grid two" style="margin-top:19px"><div class="card"><div class="section-head" style="margin:0 0 12px"><h2>Recent activity</h2></div>${activityRows||'<div class="empty">No actions recorded yet. Add or complete a task to get started!</div>'}<div class="progress-download"><button class="secondary" data-action="export-progress">Export activity (CSV)</button><button class="secondary" data-action="export">Export full record (JSON)</button></div></div>${feedback}</div><div class="alert" style="margin-top:16px">Research note: Only include respondents who actually used the app. Activity is saved in the research database under the signed-in account; records are useful supporting evidence but do not guarantee authentic usage. New tracking starts with this cloud version.</div>`;
 }
 const tutorialSteps=[
  {icon:'🐃',title:'Welcome to Tamaraw Time!',body:'Your campus companion helps you manage classes, assignments and the time you need to leave for school.',tip:'This short tutorial appears on your first visit. You can replay it anytime from Settings.'},
- {icon:'▦',title:'1. Add your class schedule',body:'Open Class Schedule and enter the subject, day, class hours and campus. The Dashboard will show your next class.',tip:'Try adding a real class instead of relying on the example subject.'},
+ {icon:'▦',title:'1. Add your class schedule',body:'Open Class Schedule and enter the subject, day, class hours and campus. The Dashboard will show your next class.',tip:'Add your own real classes to start building your schedule.'},
  {icon:'✓',title:'2. Organize your school tasks',body:'In Tasks & Deadlines, create assignments with due dates and mark them completed. The dashboard updates as you finish.',tip:'Adding or completing tasks also records an active-use event for today.'},
  {icon:'➤',title:'3. Plan when to leave',body:'Set your travel time, prep minutes and arrival buffer in Commute Planner, then open Google Maps for route guidance.',tip:'Tamaraw Time uses your manually entered travel estimate, not live traffic.'},
- {icon:'▥',title:'4. Check progress and give feedback',body:'Open My Progress to see activity from different days. After actions on 3 separate dates, the pilot feedback form becomes available.',tip:'All records stay in this browser. Export the data for your research team if needed.'}
+ {icon:'▥',title:'4. Check progress and give feedback',body:'Open My Progress to see activity from different days. After actions on 3 separate dates, the pilot feedback form becomes available.',tip:'Your account keeps the records in the cloud, and the project team can review research results in the database.'}
 ];
 let tutorialIndex=0;
 function renderTutorial(){const s=tutorialSteps[tutorialIndex];$('#tutorial-step').innerHTML=`<div class="tutorial-illustration">${s.icon}</div><h2 id="tutorial-title">${esc(s.title)}</h2><p>${esc(s.body)}</p><div class="tutorial-tip">${esc(s.tip)}</div>`;$('#tutorial-dots').innerHTML=tutorialSteps.map((_,i)=>`<span class="${i===tutorialIndex?'active':''}" aria-hidden="true"></span>`).join('');$('#tutorial-count').textContent=`${tutorialIndex+1} / ${tutorialSteps.length}`;$('#tutorial-prev').disabled=tutorialIndex===0;$('#tutorial-next').textContent=tutorialIndex===tutorialSteps.length-1?'Start using app ✓':'Next →'}
@@ -68,7 +79,7 @@ const opts=upcoming().map(c=>`<option value="${esc(c.id)}">${esc(c.name)} — ${
 html=`<div class="grid two"><div class="card"><h2>Plan your next trip</h2><div class="field"><label for="class-select">Choose a class</label><select id="class-select">${opts||'<option value="">No scheduled classes</option>'}</select></div><div class="field"><label>Destination campus</label><input value="${esc(state.settings.campus)}" disabled></div><div class="field"><label for="trip-mode">Travel mode</label><select id="trip-mode"><option value="Transit" ${state.settings.mode==='Transit'?'selected':''}>Public transit</option><option value="Driving" ${state.settings.mode==='Driving'?'selected':''}>Driving</option><option value="Walking" ${state.settings.mode==='Walking'?'selected':''}>Walking</option></select></div><div class="field"><label for="trip-travel">Estimated journey (minutes)</label><input id="trip-travel" type="number" min="1" max="480" value="${Number(state.settings.travel)}"></div><div class="field"><label for="trip-buffer">Arrival buffer (minutes)</label><input id="trip-buffer" type="number" min="0" max="120" value="${Number(state.settings.buffer)}"></div><div class="field"><label for="trip-prep">Get-ready time (minutes)</label><input id="trip-prep" type="number" min="0" max="240" value="${Number(state.settings.prep)}"></div><button class="primary" data-action="save-commute">Save my commute settings</button></div><div class="stack"><div class="card"><h2>Your recommended routine</h2><div id="commute-output"></div></div><div class="card"><h2>Maps & GPS</h2><p class="muted mini">Open navigation to your selected FEU campus. Google Maps may use your device's location after permission is granted.</p><button class="primary" data-action="maps">Open Google Maps ↗</button><button class="secondary" style="margin-left:6px" data-action="location">Check my GPS</button><p class="mini muted" id="gps-output"></p></div><div class="alert">Traffic data is not connected in this version. Adjust the estimate manually for current travel conditions; opening Google Maps does not update the estimate automatically.</div></div></div>`;
 }else if(page==='progress'){html=progressPanel();
 }else if(page==='settings'){
-html=`<div class="grid two"><div class="card"><h2>Student preferences</h2><form id="settings-form"><div class="field"><label>Name</label><input name="name" maxlength="40" required value="${esc(state.settings.name)}"></div><div class="field"><label>FEU campus</label><select name="campus">${['FEU Tech','FEU Manila','FEU Diliman','FEU Alabang'].map(c=>`<option ${state.settings.campus===c?'selected':''}>${c}</option>`).join('')}</select></div><div class="field"><label>Travel mode</label><select name="mode">${['Transit','Driving','Walking'].map(m=>`<option ${state.settings.mode===m?'selected':''}>${m}</option>`).join('')}</select></div><div class="field"><label>Default commute minutes</label><input name="travel" type="number" min="1" max="480" value="${state.settings.travel}"></div><div class="field"><label>Preparation minutes</label><input name="prep" type="number" min="0" max="240" value="${state.settings.prep}"></div><div class="field"><label>Arrival buffer minutes</label><input name="buffer" type="number" min="0" max="120" value="${state.settings.buffer}"></div><button class="primary" type="submit">Save settings</button></form></div><div class="stack"><div class="card"><h2>Your data</h2><p class="muted">Classes, tasks, and settings are stored only in this browser using localStorage. Clearing site data or using another device will not carry them over.</p><button class="secondary" data-action="export">Export data (JSON)</button> <button class="danger" data-action="reset">Reset all data</button><div class="settings-help"><h3>Help & onboarding</h3><p class="muted mini">New to Tamaraw Time? Replay the introduction to learn the class schedule, task planner, commute planner, and progress tracking.</p><button type="button" class="secondary" data-action="tutorial">Replay app tutorial</button></div></div></div></div>`;
+html=`<div class="grid two"><div class="card"><h2>Student preferences</h2><form id="settings-form"><div class="field"><label>Name</label><input name="name" maxlength="40" required value="${esc(state.settings.name)}"></div><div class="field"><label>FEU campus</label><select name="campus">${['FEU Tech','FEU Manila','FEU Diliman','FEU Alabang'].map(c=>`<option ${state.settings.campus===c?'selected':''}>${c}</option>`).join('')}</select></div><div class="field"><label>Travel mode</label><select name="mode">${['Transit','Driving','Walking'].map(m=>`<option ${state.settings.mode===m?'selected':''}>${m}</option>`).join('')}</select></div><div class="field"><label>Default commute minutes</label><input name="travel" type="number" min="1" max="480" value="${state.settings.travel}"></div><div class="field"><label>Preparation minutes</label><input name="prep" type="number" min="0" max="240" value="${state.settings.prep}"></div><div class="field"><label>Arrival buffer minutes</label><input name="buffer" type="number" min="0" max="120" value="${state.settings.buffer}"></div><button class="primary" type="submit">Save settings</button></form></div><div class="stack"><div class="card"><h2>Your data</h2><p class="muted">Classes, tasks, progress, and feedback are stored online in your Tamaraw Time account. Sign in on another device to access your planner. Research staff can review study results in the protected database.</p><button class="secondary" data-action="export">Export data (JSON)</button> <button class="danger" data-action="reset">Reset planner only</button><p class="mini muted">Your activity history and previously submitted feedback are retained for the pilot study.</p><button class="secondary" style="margin-top:8px" data-action="refresh-cloud">Refresh from cloud</button><div class="settings-help"><h3>Help & onboarding</h3><p class="muted mini">New to Tamaraw Time? Replay the introduction to learn the class schedule, task planner, commute planner, and progress tracking.</p><button type="button" class="secondary" data-action="tutorial">Replay app tutorial</button></div></div></div></div>`;
 }
 if(page==='home'){let ds=activityDays();html+=`<div class="card home-progress"><div><div class="mini progress-kicker">YOUR PILOT PROGRESS</div><h2>${Math.min(ds.length,3)} of 3 active days</h2><p class="mini muted">${eligibleForFeedback()?'Your feedback form is now ready!':'Use Tamaraw Time on three different dates to unlock feedback.'}</p></div><button class="primary" data-action="go-progress">View progress →</button></div>`}
 $('#content').innerHTML=html;if(page==='commute'){updateCommute();$('#class-select')?.addEventListener('change',updateCommute);['trip-travel','trip-buffer','trip-prep'].forEach(id=>$('#'+id)?.addEventListener('input',updateCommute))}}
@@ -76,28 +87,204 @@ function updateCommute(){const c=state.classes.find(x=>x.id===$('#class-select')
 const fields={task:`<div class="field"><label>Task title *</label><input name="title" required maxlength="100" placeholder="e.g. Submit OOP project"></div><div class="field"><label>Subject</label><input name="subject" maxlength="60" placeholder="e.g. Computer Science"></div><div class="formgrid"><div class="field"><label>Deadline</label><input name="deadline" type="date"></div><div class="field"><label>Priority</label><select name="priority"><option>Medium</option><option>High</option><option>Low</option></select></div></div>`,class:`<div class="field"><label>Subject name *</label><input name="name" maxlength="80" required placeholder="e.g. Database Management"></div><div class="formgrid"><div class="field"><label>Day of week</label><select name="day">${days.map((d,i)=>`<option value="${i}">${d}</option>`).join('')}</select></div><div class="field"><label>Room</label><input name="room" maxlength="40" placeholder="Room 401"></div><div class="field"><label>Start time</label><input name="time" type="time" required value="09:00"></div><div class="field"><label>End time</label><input name="end" type="time" required value="10:30"></div></div><div class="field"><label>Campus</label><select name="campus">${['FEU Tech','FEU Manila','FEU Diliman','FEU Alabang'].map(c=>`<option>${c}</option>`).join('')}</select></div>`};
 let modalType='task';function openModal(type){modalType=type;$('#modal-title').textContent=type==='task'?'Add a task':'Add a class';$('#modal-fields').innerHTML=fields[type];if(type==='class')$('#modal-fields [name="campus"]').value=state.settings.campus;$('#dialog').showModal()}
 function toast(t){let e=$('#toast');e.textContent=t;e.style.display='block';clearTimeout(window._toastTimeout);window._toastTimeout=setTimeout(()=>e.style.display='none',2800)}
-$('#modal-form').addEventListener('submit',e=>{e.preventDefault();const v=Object.fromEntries(new FormData(e.target).entries());if(modalType==='task'){state.tasks.push({...v,id:crypto.randomUUID(),done:false})}else{if(v.end<=v.time){toast('End time must be after start time');return}state.classes.push({...v,id:crypto.randomUUID(),day:Number(v.day)})}track(modalType==='task'?'task_added':'class_added');$('#dialog').close();render();toast('Saved successfully')});
+$('#modal-form').addEventListener('submit',async e=>{
+ e.preventDefault();
+ const v=Object.fromEntries(new FormData(e.target).entries());
+ const mode=modalType;
+ if(mode==='class'&&v.end<=v.time){toast('End time must be after start time');return}
+ if(mode==='task')state.tasks.push({...v,id:uid(),done:false});
+ else state.classes.push({...v,id:uid(),day:Number(v.day)});
+ $('#dialog').close();render();toast('Saving to cloud…');
+ try{await track(mode==='task'?'task_added':'class_added');toast('Saved online ✓')}
+ catch(err){toast('Save failed: '+(err.message||err))}
+});
 $('#close-modal').onclick=$('#cancel-modal').onclick=()=>$('#dialog').close();$('#quick-add').onclick=()=>openModal('task');document.querySelectorAll('#nav button').forEach(b=>b.addEventListener('click',()=>navigate(b.dataset.page)));
-$('#content').addEventListener('change',e=>{if(e.target.dataset.action==='toggle'){let t=state.tasks.find(x=>x.id===e.target.dataset.id);if(t){if(t.done!==e.target.checked){t.done=e.target.checked;track(t.done?'task_completed':'task_reopened');render()}}}});
-$('#content').addEventListener('submit',e=>{
+$('#content').addEventListener('change',async e=>{
+ if(e.target.dataset.action!=='toggle')return;
+ const t=state.tasks.find(x=>x.id===e.target.dataset.id);
+ if(!t||t.done===e.target.checked)return;
+ t.done=e.target.checked;const type=t.done?'task_completed':'task_reopened';
+ render();toast('Saving to cloud…');
+ try{await track(type);toast('Task updated online ✓')}
+ catch(err){toast('Cloud update failed: '+(err.message||err))}
+});
+$('#content').addEventListener('submit',async e=>{
  if(e.target.id==='feedback-form'){
   e.preventDefault();if(!eligibleForFeedback()){toast('Three active days are required for feedback.');navigate('progress');return}
   const v=Object.fromEntries(new FormData(e.target).entries());
   if(![v.overall,v.ease].every(x=>['1','2','3','4','5'].includes(x))||!v.feature||!v.comments.trim()){toast('Complete the required feedback fields');return}
-  state.feedback={code:v.code.trim(),overall:Number(v.overall),ease:Number(v.ease),feature:v.feature,comments:v.comments.trim(),savedAt:new Date().toISOString(),activeDaysAtSubmission:activityDays().length};
-  save();render();toast('Feedback saved. Export the full record to share it.');return;
+  const btn=e.target.querySelector('button[type=submit]');if(btn)btn.disabled=true;
+  try{
+   await writeQueue.catch(()=>{});
+   state.feedback=await CloudStore.saveFeedback({code:v.code.trim(),overall:Number(v.overall),ease:Number(v.ease),feature:v.feature,comments:v.comments.trim()});
+   render();toast('Feedback saved to the study database.');
+  }catch(err){toast('Feedback not saved: '+(err.message||err));if(btn)btn.disabled=false}
+  return;
  }
  if(e.target.id!=='settings-form')return;
  e.preventDefault();const v=Object.fromEntries(new FormData(e.target).entries());
  const s={...v,name:v.name.trim()||'Tamaraw',travel:Number(v.travel),prep:Number(v.prep),buffer:Number(v.buffer)};
  const changed=Object.keys(s).some(k=>s[k]!==state.settings[k]);
- state.settings=s;if(changed)track('settings_saved');else save();navigate('settings');toast(changed?'Settings saved':'No changes to save')
+ state.settings=s;navigate('settings');
+ if(!changed){toast('No changes to save');return}
+ toast('Saving to cloud…');
+ try{await track('settings_saved');toast('Settings saved online ✓')}
+ catch(err){toast('Cloud save failed: '+(err.message||err))}
 });
-$('#content').addEventListener('click',e=>{const b=e.target.closest('button[data-action]');if(!b)return;const a=b.dataset.action,id=b.dataset.id;if(a==='add-task'||a==='add-class')openModal(a==='add-task'?'task':'class');else if(a==='go-commute')navigate('commute');else if(a==='go-schedule')navigate('schedule');else if(a==='go-tasks')navigate('tasks');else if(a==='go-progress')navigate('progress');else if(a==='tutorial')showTutorial();else if(a==='export-progress')exportProgressCSV();else if(a==='del-task'||a==='del-class'){if(!confirm('Delete this item?'))return;if(a==='del-task')state.tasks=state.tasks.filter(t=>t.id!==id);else state.classes=state.classes.filter(c=>c.id!==id);track(a==='del-task'?'task_deleted':'class_deleted');render()}else if(a==='save-commute'){let v=id=>Number($('#'+id).value);let tr=v('trip-travel'),bf=v('trip-buffer'),pr=v('trip-prep');if(tr<1||tr>480||bf<0||bf>120||pr<0||pr>240){toast('Please enter valid times');return}let s={travel:tr,buffer:bf,prep:pr,mode:$('#trip-mode').value};let changed=Object.keys(s).some(k=>state.settings[k]!==s[k]);Object.assign(state.settings,s);if(changed)track('commute_saved');else save();toast(changed?'Commute settings saved':'No changes to save');render()}else if(a==='maps'){const destination={'FEU Tech':'FEU Institute of Technology Manila','FEU Manila':'Far Eastern University Manila','FEU Diliman':'FEU Diliman Quezon City','FEU Alabang':'FEU Alabang Muntinlupa'}[state.settings.campus]||state.settings.campus;const mode=$('#trip-mode')?.value||state.settings.mode;let travelmode=mode==='Transit'?'transit':mode==='Driving'?'driving':'walking';window.open('https://www.google.com/maps/dir/?api=1&destination='+encodeURIComponent(destination)+'&travelmode='+travelmode,'_blank','noopener,noreferrer');track('maps_opened')}else if(a==='location'){let out=$('#gps-output');if(!navigator.geolocation){out.textContent='GPS is not supported in this browser.';return}out.textContent='Requesting location permission…';navigator.geolocation.getCurrentPosition(p=>{out.textContent='GPS location detected. Open Maps to navigate.';track('gps_checked')},err=>out.textContent='Location unavailable: '+err.message,{enableHighAccuracy:true,timeout:12000})}else if(a==='export'){downloadText('tamaraw-time-full-record.json',JSON.stringify({...state,exportedAt:new Date().toISOString(),researchNote:'Device-local self-stored data, not independently verified.'},null,2),'application/json')}else if(a==='reset'){if(!confirm('Reset all Tamaraw Time data? This cannot be undone.'))return;state={classes:[],tasks:[],settings:{...defaults.settings},tracker:{events:[]},onboarding:{finished:false},feedback:null};save();navigate('settings');toast('Data reset');showTutorial()}});
+$('#content').addEventListener('click',async e=>{
+ const b=e.target.closest('button[data-action]');if(!b)return;
+ const a=b.dataset.action,id=b.dataset.id;
+ if(a==='add-task'||a==='add-class'){openModal(a==='add-task'?'task':'class');return}
+ if(a.startsWith('go-')){const dest={'go-commute':'commute','go-schedule':'schedule','go-tasks':'tasks','go-progress':'progress'}[a];if(dest)navigate(dest);return}
+ if(a==='tutorial'){showTutorial();return}
+ if(a==='export-progress'){exportProgressCSV();return}
+ if(a==='export'){
+  downloadText('tamaraw-time-full-record.json',JSON.stringify({...state,exportedAt:new Date().toISOString(),researchNote:'Cloud data from signed-in account; not independent proof of use.'},null,2),'application/json');return;
+ }
+ if(a==='del-task'||a==='del-class'){
+  if(!confirm('Delete this item?'))return;
+  if(a==='del-task')state.tasks=state.tasks.filter(t=>t.id!==id);
+  else state.classes=state.classes.filter(c=>c.id!==id);
+  render();toast('Saving to cloud…');
+  try{await track(a==='del-task'?'task_deleted':'class_deleted');toast('Deleted online ✓')}
+  catch(err){toast('Cloud save failed: '+(err.message||err))}
+  return;
+ }
+ if(a==='save-commute'){
+  const v=id=>Number($('#'+id).value),tr=v('trip-travel'),bf=v('trip-buffer'),pr=v('trip-prep');
+  if(!Number.isFinite(tr)||tr<1||tr>480||!Number.isFinite(bf)||bf<0||bf>120||!Number.isFinite(pr)||pr<0||pr>240){toast('Please enter valid times');return}
+  const x={travel:tr,buffer:bf,prep:pr,mode:$('#trip-mode').value};
+  const changed=Object.keys(x).some(k=>state.settings[k]!==x[k]);
+  Object.assign(state.settings,x);render();
+  if(!changed){toast('No changes to save');return}
+  toast('Saving to cloud…');
+  try{await track('commute_saved');toast('Commute settings saved online ✓')}
+  catch(err){toast('Cloud save failed: '+(err.message||err))}
+  return;
+ }
+ if(a==='maps'){
+  const destination={'FEU Tech':'FEU Institute of Technology Manila','FEU Manila':'Far Eastern University Manila','FEU Diliman':'FEU Diliman Quezon City','FEU Alabang':'FEU Alabang Muntinlupa'}[state.settings.campus]||state.settings.campus;
+  const mode=$('#trip-mode')?.value||state.settings.mode;
+  const travelmode=mode==='Transit'?'transit':mode==='Driving'?'driving':'walking';
+  window.open('https://www.google.com/maps/dir/?api=1&destination='+encodeURIComponent(destination)+'&travelmode='+travelmode,'_blank','noopener,noreferrer');
+  track('maps_opened').catch(()=>{});return;
+ }
+ if(a==='location'){
+  const out=$('#gps-output');if(!navigator.geolocation){out.textContent='GPS is not supported in this browser.';return}
+  out.textContent='Requesting location permission…';
+  navigator.geolocation.getCurrentPosition(()=>{
+   out.textContent='GPS location detected. Open Maps to navigate.';
+   track('gps_checked').catch(()=>{});
+  },err=>{out.textContent='Location unavailable: '+err.message},{enableHighAccuracy:true,timeout:12000});return;
+ }
+ if(a==='refresh-cloud'){
+  try{await refreshCloud();toast('Loaded the latest cloud data ✓')}
+  catch(err){toast('Refresh failed: '+(err.message||err))}
+  return;
+ }
+ if(a==='reset'){
+  if(!confirm('Clear classes, tasks and preferences? Your activity logs and feedback remain saved online for the study.'))return;
+  const before=payload();
+  state.classes=[];state.tasks=[];state.settings={...defaults.settings};
+  try{await save();navigate('settings');toast('Planner reset online; study history retained')}
+  catch(err){state.classes=before.classes;state.tasks=before.tasks;state.settings=before.settings;render();toast('Reset failed: '+(err.message||err))}
+ }
+});
 $('#today').textContent=new Date().toLocaleDateString('en-PH',{weekday:'short',month:'long',day:'numeric'});
 $('#tutorial-next').addEventListener('click',()=>{if(tutorialIndex===tutorialSteps.length-1){finishTutorial();navigate('schedule')}else{tutorialIndex++;renderTutorial()}});
 $('#tutorial-prev').addEventListener('click',()=>{if(tutorialIndex>0){tutorialIndex--;renderTutorial()}});
 $('#tutorial-close').addEventListener('click',finishTutorial);
 $('#tutorial-skip').addEventListener('click',finishTutorial);
 $('#tutorial-dialog').addEventListener('cancel',()=>{state.onboarding.finished=true;save()});
-navigate('home');if(!state.onboarding.finished)showTutorial();
+// Authentication and initial loading. No planner information is saved locally.
+function authMode(mode){
+ const signUp=mode==='signup';
+ $('#auth-form').dataset.mode=mode;
+ $('#auth-submit').textContent=signUp?'Create student account':'Sign in';
+ $('#auth-heading').textContent=signUp?'Create your Tamaraw Time account':'Welcome back, Tamaraw!';
+ $('#auth-mode-toggle').textContent=signUp?'Already have an account? Sign in':'New here? Create an account';
+ $('#auth-consent').hidden=!signUp;
+ $('#study-consent').required=signUp;
+ $('#auth-password').autocomplete=signUp?'new-password':'current-password';
+ $('#auth-message').textContent='';
+}
+function authMessage(msg){$('#auth-message').textContent=msg;}
+function showAuth(msg=''){
+ loadedFor=null;CloudStore.setUser(null);
+ $('#app-layout').hidden=true;$('#auth-screen').hidden=false;
+ $('#account-email').textContent='';
+ if($('#tutorial-dialog').open)$('#tutorial-dialog').close();
+ authMessage(msg);
+ if(!CloudStore.configured){
+  authMessage('Cloud database not connected yet. The project owner must configure cloud-config.js and run schema.sql in Supabase.');
+  $('#auth-submit').disabled=true;
+ }
+}
+async function enterApp(user){
+ if(!user||!CloudStore.configured||loadedFor===user.id)return;
+ const ticket=++authCounter;
+ CloudStore.setUser(user);
+ authMessage('Loading your cloud planner…');
+ try{
+  const data=await CloudStore.load();
+  if(ticket!==authCounter)return;
+  const v=data.payload;
+  state={
+   classes:Array.isArray(v?.classes)?v.classes:[],
+   tasks:Array.isArray(v?.tasks)?v.tasks:[],
+   settings:{...defaults.settings,...(v?.settings||{})},
+   onboarding:{finished:!!v?.onboarding?.finished},
+   tracker:{events:data.events},feedback:data.feedback
+  };
+  loadedFor=user.id;
+  $('#account-email').textContent=user.email||'Student account';
+  $('#auth-screen').hidden=true;$('#app-layout').hidden=false;
+  navigate('home');
+  if(!state.onboarding.finished)setTimeout(showTutorial,100);
+ }catch(err){showAuth('Could not load the study database: '+(err.message||err)+'. Verify that schema.sql has been installed.');}
+}
+async function refreshCloud(){
+ if(!CloudStore.getUser())return;
+ await writeQueue.catch(()=>{});
+ const data=await CloudStore.load();
+ const v=data.payload;
+ state={classes:Array.isArray(v?.classes)?v.classes:[],tasks:Array.isArray(v?.tasks)?v.tasks:[],
+  settings:{...defaults.settings,...(v?.settings||{})},onboarding:{finished:!!v?.onboarding?.finished},
+  tracker:{events:data.events},feedback:data.feedback};
+ navigate(page);
+}
+$('#auth-mode-toggle').addEventListener('click',()=>authMode($('#auth-form').dataset.mode==='signup'?'login':'signup'));
+$('#auth-form').addEventListener('submit',async e=>{
+ e.preventDefault();if(!CloudStore.configured)return;
+ const btn=$('#auth-submit'),mode=e.target.dataset.mode;
+ const email=$('#auth-email').value.trim(),password=$('#auth-password').value;
+ if(mode==='signup'&&!$('#study-consent').checked){authMessage('Please read and accept the pilot-study notice.');return}
+ btn.disabled=true;authMessage(mode==='signup'?'Creating your account…':'Signing you in…');
+ try{
+  const res=mode==='signup'?await CloudStore.db.auth.signUp({email,password,options:{emailRedirectTo:location.origin+location.pathname}}):
+    await CloudStore.db.auth.signInWithPassword({email,password});
+  if(res.error)throw res.error;
+  if(mode==='signup'&&!res.data.session)authMessage('Account created. Check your email to confirm your address, then return and sign in.');
+  else if(res.data.user)await enterApp(res.data.user);
+ }catch(err){authMessage(err.message||'Authentication failed. Please retry.')}
+ finally{btn.disabled=false}
+});
+$('#signout-button').addEventListener('click',async()=>{
+ await writeQueue.catch(()=>{});
+ const {error}=await CloudStore.db.auth.signOut();
+ if(error){toast('Could not sign out: '+error.message);return}
+ ++authCounter;showAuth('You have signed out. Your planner is safely stored online.');
+});
+async function boot(){
+ authMode('login');
+ if(!CloudStore.configured){showAuth();return}
+ CloudStore.db.auth.onAuthStateChange((event,session)=>{
+  if(event==='SIGNED_OUT') {++authCounter;showAuth('Signed out.');}
+  else if(event==='SIGNED_IN'&&session?.user)setTimeout(()=>enterApp(session.user),0);
+ });
+ const {data,error}=await CloudStore.db.auth.getSession();
+ if(error){showAuth(error.message);return}
+ if(data.session?.user)await enterApp(data.session.user);
+ else showAuth();
+}
+boot();
