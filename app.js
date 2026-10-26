@@ -15,6 +15,11 @@ const defaults = {classes:[],settings:{name:'Tamaraw',campus:'FEU Tech',travel:5
 let state = structuredClone(defaults), currentPage='home', loadedUser=null, authCounter=0;
 let writeQueue = Promise.resolve(), tutorialIndex=0, gpsPosition=null;
 let mapOriginText='', legacyPayload={};
+let recoveryReady=false;
+const recoveryLinkOpened=new URLSearchParams(location.search).get('auth')==='recovery' || new URLSearchParams(location.hash.slice(1)).get('type')==='recovery';
+function recoveryRedirectUrl(){const url=new URL(location.href);url.search='';url.hash='';url.searchParams.set('auth','recovery');return url.toString();}
+function clearRecoveryUrl(){const url=new URL(location.href);url.searchParams.delete('auth');if(url.hash.includes('type=recovery'))url.hash='';history.replaceState({},'',url.pathname+url.search+url.hash);}
+
 const uid = () => globalThis.crypto?.randomUUID?.() ?? `tt-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const fmtDate = date => date.toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric'});
 const ampm = time => {const [h,m]=String(time).split(':').map(Number);return `${h%12||12}:${String(m).padStart(2,'0')} ${h>=12?'PM':'AM'}`;};
@@ -199,12 +204,36 @@ $('#tutorial-close').addEventListener('click',finishTutorial);
 $('#tutorial-skip').addEventListener('click',finishTutorial);
 $('#tutorial-dialog').addEventListener('cancel',()=>{state.onboarding.finished=true;saveToCloud();});
 function authMode(mode){
- const signup=mode==='signup';$('#auth-form').dataset.mode=mode;
- $('#auth-submit').textContent=signup?'Create account':'Sign in';
- $('#auth-heading').textContent=signup?'Create your Tamaraw Time account':'Welcome back, Tamaraw!';
- $('#auth-mode-toggle').textContent=signup?'Already have an account? Sign in':'New here? Create an account';
- $('#auth-consent').hidden=!signup;$('#study-consent').required=signup;
- $('#auth-password').autocomplete=signup?'new-password':'current-password';$('#auth-message').textContent='';
+ const form=$('#auth-form');form.dataset.mode=mode;
+ const signup=mode==='signup',forgot=mode==='forgot',reset=mode==='reset';
+ const heading={login:'Welcome back, Tamaraw!',signup:'Create your Tamaraw Time account',forgot:'Forgot your password?',reset:'Choose a new password'};
+ const subtitles={login:'Sign in to keep your class schedule and commute preferences online.',signup:'Create your account to save schedules and commute settings in the cloud.',forgot:'Enter your account email. We’ll send a link to reset your password.',reset:'Enter and confirm a new password to regain access to your account.'};
+ $('#auth-heading').textContent=heading[mode];
+ $('.auth-subtitle').textContent=subtitles[mode];
+ $('#auth-submit').textContent={login:'Sign in',signup:'Create account',forgot:'Send reset link',reset:'Update password'}[mode];
+ $('#auth-mode-toggle').textContent=mode==='login'?'New here? Create an account':'Back to sign in';
+ $('#auth-forgot-button').hidden=mode!=='login';
+ $('#auth-email-field').hidden=reset;
+ $('#auth-password-field').hidden=forgot;
+ $('#auth-confirm-field').hidden=!(signup||reset);
+ $('#auth-consent').hidden=!signup;
+ $('#study-consent').required=signup;
+ $('#auth-email').required=!reset;
+ $('#auth-password').required=!forgot;
+ $('#auth-confirm').required=signup||reset;
+ $('#auth-password-label').textContent=reset?'New password (at least 6 characters)':'Password (at least 6 characters)';
+ $('#auth-password').autocomplete=signup||reset?'new-password':'current-password';
+ $('#auth-confirm').autocomplete='new-password';
+ $('#auth-password').value='';$('#auth-confirm').value='';
+ $('#auth-message').textContent='';
+}
+function showPasswordRecovery(){
+ recoveryReady=true;
+ ++authCounter;
+ loadedUser=null;CloudStore.setUser(null);
+ $('#app-layout').hidden=true;$('#auth-screen').hidden=false;
+ if($('#tutorial-dialog').open)$('#tutorial-dialog').close();
+ authMode('reset');
 }
 function showAuth(message=''){
  loadedUser=null;CloudStore.setUser(null);$('#app-layout').hidden=true;$('#auth-screen').hidden=false;$('#account-email').textContent='';
@@ -230,19 +259,44 @@ async function refreshCloud(){
  legacyPayload=structuredClone(p);state={classes:Array.isArray(p.classes)?p.classes:[],settings:{...defaults.settings,...(p.settings||{})},onboarding:{finished:!!p?.onboarding?.finished}};
  navigate(currentPage);
 }
-$('#auth-mode-toggle').addEventListener('click',()=>authMode($('#auth-form').dataset.mode==='signup'?'login':'signup'));
+$('#auth-mode-toggle').addEventListener('click',()=>{
+ const mode=$('#auth-form').dataset.mode;
+ if(mode==='reset'){recoveryReady=false;clearRecoveryUrl();}
+ authMode(mode==='login'?'signup':'login');
+});
+$('#auth-forgot-button').addEventListener('click',()=>authMode('forgot'));
 $('#auth-form').addEventListener('submit',async event=>{
  event.preventDefault();if(!CloudStore.configured)return;
- const button=$('#auth-submit'),signup=event.target.dataset.mode==='signup';
- const email=$('#auth-email').value.trim(),password=$('#auth-password').value;
+ const mode=event.target.dataset.mode;
+ const email=$('#auth-email').value.trim(),password=$('#auth-password').value,confirmation=$('#auth-confirm').value;
+ const signup=mode==='signup',reset=mode==='reset';
+ if((signup||reset)&&password!==confirmation){$('#auth-message').textContent='Passwords do not match. Please enter the same password twice.';return;}
+ if((signup||reset)&&password.length<6){$('#auth-message').textContent='Your password must contain at least 6 characters.';return;}
  if(signup&&!$('#study-consent').checked){$('#auth-message').textContent='Please read the research activity notice.';return;}
- button.disabled=true;$('#auth-message').textContent=signup?'Creating your account…':'Signing in…';
+ const button=$('#auth-submit');button.disabled=true;
+ $('#auth-message').textContent={login:'Signing in…',signup:'Creating your account…',forgot:'Sending password reset email…',reset:'Updating your password…'}[mode];
  try{
-  const res=signup?await CloudStore.db.auth.signUp({email,password,options:{emailRedirectTo:location.origin+location.pathname}}):await CloudStore.db.auth.signInWithPassword({email,password});
-  if(res.error)throw res.error;
-  if(signup&&!res.data.session)$('#auth-message').textContent='Account created. Please verify your email, then sign in.';
-  else if(res.data.user)await enterApp(res.data.user);
- }catch(err){$('#auth-message').textContent=err.message||'Could not sign in.';}finally{button.disabled=false;}
+  if(mode==='forgot'){
+   const {error}=await CloudStore.db.auth.resetPasswordForEmail(email,{redirectTo:recoveryRedirectUrl()});
+   if(error)throw error;
+   $('#auth-message').textContent='If an account exists for this email, a password reset link will arrive shortly. Check your inbox and spam folder.';
+  }else if(reset){
+   if(!recoveryReady)throw new Error('Open a valid password-reset email link first.');
+   const {error}=await CloudStore.db.auth.updateUser({password});
+   if(error)throw error;
+   recoveryReady=false;clearRecoveryUrl();
+   const {error:signOutError}=await CloudStore.db.auth.signOut();
+   if(signOutError)throw signOutError;
+   authMode('login');
+   $('#auth-message').textContent='Password updated successfully. Please sign in with your new password.';
+  }else{
+   const res=signup?await CloudStore.db.auth.signUp({email,password,options:{emailRedirectTo:location.origin+location.pathname}}):await CloudStore.db.auth.signInWithPassword({email,password});
+   if(res.error)throw res.error;
+   if(signup&&!res.data.session)$('#auth-message').textContent='Account created. Please verify your email, then sign in.';
+   else if(res.data.user)await enterApp(res.data.user);
+  }
+ }catch(err){$('#auth-message').textContent=err.message||'Authentication failed. Please try again.';}
+ finally{button.disabled=false;}
 });
 $('#signout-button').addEventListener('click',async()=>{
  await writeQueue.catch(()=>{});const {error}=await CloudStore.db.auth.signOut();
@@ -253,11 +307,21 @@ async function boot(){
  formatClock();setInterval(formatClock,1000);authMode('login');
  if(!CloudStore.configured){showAuth();return;}
  CloudStore.db.auth.onAuthStateChange((event,session)=>{
-  if(event==='SIGNED_OUT'){++authCounter;showAuth('Signed out.');}
-  else if(event==='SIGNED_IN'&&session?.user)setTimeout(()=>enterApp(session.user),0);
+  if(event==='PASSWORD_RECOVERY'){
+   showPasswordRecovery();
+  }else if(event==='SIGNED_OUT'){
+   if(!recoveryReady){++authCounter;showAuth('Signed out.');}
+  }else if(event==='SIGNED_IN'&&session?.user&&!recoveryReady&&!recoveryLinkOpened){
+   setTimeout(()=>{if(!recoveryReady)enterApp(session.user);},0);
+  }
  });
  const {data,error}=await CloudStore.db.auth.getSession();
  if(error){showAuth(error.message);return;}
- if(data.session?.user)await enterApp(data.session.user);else showAuth();
+ if(recoveryReady)return;
+ if(recoveryLinkOpened){
+  if(data.session?.user)showPasswordRecovery();
+  else{showAuth('This reset link is invalid or has expired. Request a new link.');authMode('forgot');$('#auth-message').textContent='This reset link is invalid or has expired. Request a new link.';clearRecoveryUrl();}
+ }else if(data.session?.user)await enterApp(data.session.user);
+ else showAuth();
 }
 boot();
