@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tamaraw Time — Setup Check</title>
+<style>
+:root{font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif;color:#103c2f;background:#f4f3ed}*{box-sizing:border-box}body{margin:0;padding:26px 15px}.wrap{max-width:740px;margin:0 auto}header{background:#103c2f;color:#fff;padding:24px;border-radius:18px}h1{font-size:25px;margin:5px 0 7px}header p{margin:0;color:#c9d8d0}main{margin:18px 0}.item{padding:16px 18px;background:white;border:1px solid #e1e6dc;border-radius:14px;margin-bottom:10px}.item strong{display:block;font-size:15px}.item p{margin:6px 0 0;color:#65766a;font-size:14px}.item.ok{border-left:5px solid #3bab71}.item.fail{border-left:5px solid #d45b27}.item.warn{border-left:5px solid #d2a52c}small{font-size:12px;color:#65766a}.info{background:#fff;border-radius:14px;padding:18px;border:1px solid #e1e6dc}code{padding:1px 4px;background:#e9ede8;border-radius:3px}button{border:0;border-radius:10px;background:#103c2f;color:white;padding:12px 17px;font-weight:700;cursor:pointer}a{color:#156f4b}#summary{font-weight:700;margin:12px 0}footer{font-size:13px;color:#718578;margin:22px 0}
+</style>
+</head>
+<body>
+<div class="wrap"><header><small style="color:#9ccbac">TAMARAW TIME</small><h1>Cloud setup checker</h1><p>Checks whether your GitHub Pages files and Supabase configuration are connected. It doesn't show or export your credentials.</p></header>
+<main><div id="summary">Checking...</div><section id="results" aria-live="polite"></section></main>
+<div class="info"><h2 style="font-size:18px;margin-top:0">What to do next</h2><p>Fix any <strong>red</strong> items below, then refresh this page. If everything is green but your app still fails, open the main app and send a screenshot of the exact error message.</p><button id="retry">Run checks again</button><p><small>Before deploying: upload this file and all the website files to the same publishing folder. Delete <code>check-setup.html</code> before inviting pilot respondents.</small></p></div>
+<footer>Do not share passwords, service-role keys, or secret keys.</footer></div>
+<script src="cloud-config.js?v=setup-check-20261025"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+const results=document.getElementById('results');
+function line(name,status,description){const item=document.createElement('div');item.className='item '+status;const heading=document.createElement('strong');heading.textContent=(status==='ok'?'✓ ':status==='fail'?'✕ ':'! ')+name;const text=document.createElement('p');text.textContent=description;item.append(heading,text);results.append(item);return status;}
+const exists=async(file)=>{try{const r=await fetch(file+'?check='+Date.now(),{cache:'no-store'});return r.ok;}catch{return false}};
+async function run(){results.textContent='';let failures=0,warnings=0;
+const report=(...args)=>{const status=line(...args);if(status==='fail')failures++;if(status==='warn')warnings++};
+const fileNames=['index.html','styles.css','app.js','cloud-store.js'];
+for(const file of fileNames){const found=await exists(file);report(file,found?'ok':'fail',found?'Found in the current GitHub Pages folder.':'Missing or inaccessible. Upload this file to the same folder as check-setup.html.');}
+const cfg=window.TAMARAW_CLOUD;
+if(!cfg){report('cloud-config.js','fail','Could not read cloud-config.js. Upload the file beside index.html.');}
+else{
+const validUrl=typeof cfg.supabaseUrl==='string'&&/^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/i.test(cfg.supabaseUrl)&&!cfg.supabaseUrl.includes('YOUR_');
+const validKey=typeof cfg.supabasePublishableKey==='string'&&cfg.supabasePublishableKey.length>15&&!cfg.supabasePublishableKey.includes('YOUR_')&&!cfg.supabasePublishableKey.startsWith('sb_secret_');
+report('Supabase Project URL',validUrl?'ok':'fail',validUrl?'Project URL has the expected format.':'Replace YOUR_PROJECT_ID in cloud-config.js with the Project URL from Supabase → Connect.');
+report('Supabase public key',validKey?'ok':'fail',validKey?'Publishable key appears to be entered.':'Replace YOUR_SUPABASE_PUBLISHABLE_KEY in cloud-config.js with the publishable key. Do not use a secret or service-role key.');
+if(validUrl&&validKey){try{const r=await fetch(cfg.supabaseUrl.replace(/\/$/,'')+'/auth/v1/settings',{headers:{apikey:cfg.supabasePublishableKey},cache:'no-store'});if(r.ok){report('Supabase connection','ok','The project responded to a public authentication settings request.');}else{report('Supabase connection','fail','The project returned HTTP '+r.status+'. Check that the URL and key belong to the same project.');}}catch(e){report('Supabase connection','fail','Could not contact Supabase: '+e.message+'. Check network access, URL and browser console.');}}
+}
+if(typeof window.supabase?.createClient==='function')report('Supabase library','ok','The browser loaded the authentication library.');else report('Supabase library','fail','The CDN library did not load. Check internet access, ad/content blockers and browser console.');
+if(location.protocol==='file:')report('Hosting mode','warn','You opened this file locally. Test from your published https:// website for accurate results.');else report('Hosting mode','ok','Running from '+location.origin+' — the same host as your published app.');
+document.getElementById('summary').textContent=failures?failures+' issue(s) found. Fix red checks first.':warnings?'No red checks; review the warning below.':'Basic connection checks passed. Test sign-in and saving a task in the app.';
+}
+document.getElementById('retry').addEventListener('click',run);run();
+</script>
+</body></html>
