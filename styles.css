@@ -218,3 +218,26 @@ html[data-theme="night"] .period-button.active{background:#6de3c8!important;colo
 .brandmark{display:flex;align-items:center;justify-content:center;flex:0 0 43px;width:43px;height:43px;background:transparent;border-radius:13px;overflow:hidden;box-shadow:0 2px 10px #0002}
 .brandmark img{display:block;width:100%;height:100%;object-fit:contain;border-radius:12px}
 @media (max-width:1020px){.sidebar .brandmark{flex-basis:43px}}
+/* Jeepney mode: real OSM relation matches; no synthetic stop/ETA cards. */
+.jeepney-loading{padding:17px;border-radius:15px;background:var(--surface,#edf5ee);border:1px dashed #adc9b5;color:var(--ink,#234638);animation:ttFadeIn .3s ease both}
+.jeepney-results-title{display:flex;flex-direction:column;gap:4px;margin:4px 0 13px}
+.jeepney-list{display:grid;gap:11px;margin-bottom:13px}
+.jeepney-route{width:100%;display:flex;flex-direction:column;gap:7px;border:2px solid #c7d6c9;background:#fff;color:#163e30;text-align:left;border-radius:14px;padding:14px;cursor:pointer;transition:transform .17s ease,box-shadow .17s ease,border-color .17s ease}
+.jeepney-route:hover{transform:translateY(-2px);box-shadow:0 6px 18px #0b362019}
+.jeepney-route:focus-visible{outline:3px solid #1e9b73;outline-offset:2px}
+.jeepney-route.selected,.jeepney-route[aria-pressed="true"]{border-color:#ed9d25;background:#fff9eb;box-shadow:0 5px 18px #be87331d}
+.jeepney-route-head{font-weight:800;font-size:14px;line-height:1.35}
+.jeepney-route-step{font-size:12px;line-height:1.45}
+.jeepney-route-source{font-size:11px;color:#62796d}
+.jeepney-fallback{display:inline-block;margin:11px 0;color:var(--accent-link,#167147);font-size:13px;font-weight:800;text-decoration:underline;text-underline-offset:2px}
+@media(prefers-reduced-motion:reduce){.jeepney-loading{animation:none}.jeepney-route{transition:none}.jeepney-route:hover{transform:none}}
+.jeepney-osm-source{display:inline-block;margin:-5px 0 5px 7px;color:var(--accent-link,#197154);font-size:11px;font-weight:700;text-decoration:underline;text-underline-offset:2px}
+
+/* v9 evidence-based itinerary panels */
+.jeepney-plan{margin:13px 0;padding:15px;border:1px solid #b4cfbb;border-radius:14px;background:var(--surface,#f3faf4);animation:ttFadeIn .25s ease both}
+.jeepney-plan h3{margin:0 0 12px;font-size:15px}
+.jeepney-plan ol{list-style:none;display:grid;gap:12px;padding:0;margin:0}
+.jeepney-plan li{border-left:3px solid #1e9b73;padding-left:12px;display:grid;gap:4px}
+.jeepney-plan li b{font-size:13px}
+.jeepney-plan li span{font-size:12px;line-height:1.5}
+.jeepney-plan p{margin:13px 0 0}

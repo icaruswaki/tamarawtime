@@ -1,40 +1,49 @@
-# Tamaraw Time — Cloud Pilot v3
+# Tamaraw Time v8 — Live GPS + OSM-backed Jeepney Mode
 
-A multi-device student planner and three-day usability pilot for FEU students. It runs on GitHub Pages and stores student planner information and feedback **in a Supabase cloud database**, not in localStorage. Individual email/password accounts are used for access.
+**NEW:** The Jeepney mode now checks real OpenStreetMap route relations with mapped stops, only shows directionally plausible direct jeepney connections, and offers Sakay.ph when data is insufficient. See **JEEPNEY_MODE.md** for limitations and deployment.
 
-## What is included
+# Previous v7 design improvements
 
-- `index.html`: app UI, registration, sign-in, onboarding, settings, planner, study feedback.
-- `styles.css`: FEU-themed responsive desktop/mobile interface.
-- `app.js`: planner, tutorial, progress tracking, cloud save integration.
-- `cloud-store.js`: Supabase API integration; private student rows.
-- `cloud-config.js`: **must be configured** with your Supabase project URL and **publishable** (public client) key.
-- `schema.sql`: creates secure tables, Row-Level Security (RLS) policies, and database-enforced 3-day feedback eligibility.
-- `research-summary.sql`: optional research report query, for the **Supabase SQL Editor only**, not the public website.
+## Changes based on student feedback
+
+- **Animation**: New page transitions, staggered dashboard cards, visual tutorial transitions, route and GPS effects, animated guide demonstrations. Respects `prefers-reduced-motion`.
+- **Color schemes**: FEU Forest, Coastal Blue, Golden Hour, and Midnight. Choose in **Settings → Color scheme → Save settings**. The selected theme is stored in the existing Supabase `app_states.payload.settings.theme` field (no database migration required).
+- **Visual tutorial**: Five illustrated mini-screens in a walkthrough, rather than paragraphs of instructions. Replay in Settings.
+- **AM/PM controls**: Explicit, strongly highlighted 12-hour AM/PM switches for *class start and end* in the Add Class dialog. Converts to 24-hour `HH:MM` for the existing data format. All class time and date calculations still work with previously saved schedules.
+- **Automatic departure**: After a class exists, leave/get-ready times are calculated from class start, travel time, preparation time and buffer. For Walking or Driving, with permission and internet access, GPS triggers route lookup automatically (no need to press Apply Estimate), then updates the commute planner. Route times are routing estimates, **not live traffic**. If GPS or routing is unavailable, an editable fallback is used.
+- **Previous v6 features retained**: Interactive Leaflet map, live GPS marker, school campus pins, walking/driving routes, transit-mode selector, cloud schedule and private researcher activity logs.
+- **Old bugs fixed**: The `classForm` definition missing from v6 is restored, allowing Add Class to work.
+
+## Quick UI preview (does not need Supabase)
+
+Open `demo.html` via a local web server (e.g., `python -m http.server 8000`, browse to `http://localhost:8000/demo.html`) or on GitHub Pages. It uses simulated account and schedule data **in memory only**. It is not a separate database and **does not save changes**. `index.html` remains the actual cloud version.
+
+## Deploy to GitHub Pages
+
+1. Unzip the files and upload `index.html`, `app.js`, `styles.css`, `cloud-config.js`, `cloud-store.js`, `schema.sql`, etc. to your GitHub Pages publishing folder. For a public demo you can additionally upload `demo.html` and `demo-cloud.js`, but **do not point users to the demo for research data collection**.
+2. In `cloud-config.js`, set the Supabase project URL and publishable/anon key. **Never use a secret/service-role key in frontend code**.
+3. If this is a new database, run `schema.sql` in Supabase SQL Editor once. If v6 is already working, do **not** drop or recreate tables; v7 uses the same schema.
+4. Enable Email sign-in and configure the GitHub Pages URL in Supabase Authentication redirect settings.
+5. Open `index.html` over HTTPS, test signup/login, add a class at 9:00 PM then a second at 9:00 AM, change theme and save, reload, and confirm it persists.
+6. On a smartphone, open **Commute Planner**, select Walking or Driving, start GPS, and allow location permission. Routes require a public third-party service and may not always respond. The map and GPS are not available offline.
+
+## Privacy and limitations
+
+- GPS requires the student's permission and only runs in the foreground. GPS coordinates are not stored in Supabase by this app; route coordinates are sent to third-party routing services if a route is requested.
+- Public-transport routes for Jeepney / Train / Bus / UV are not available without a verified transit provider; they use the user's estimated journey minutes. No stops or live traffic times are invented.
+- The public routing endpoint is best-effort, not suitable as a production SLA. It may rate-limit or fail; replace it with an appropriate routing service before a large rollout.
+- On a non-Philippine-device timezone, next-class weekday calculation in this MVP uses the device timezone; the header clock always uses Asia/Manila. Test on Philippine devices for campus use.
+- `schema.sql` logs only named study events (class added/deleted, commute/settings saved, GPS checked, map opened). Researcher reporting remains in Supabase.
+- GitHub Pages can't host a server-side database; the main app continues to require Supabase cloud setup.
+
+## Branding restored (v7.1)
+
+- The original logo is now shown in the sign-in panel and sidebar.
+- Upload **tamaraw-logo.png** and **favicon.ico** alongside index.html, styles.css, app.js, cloud-config.js and cloud-store.js.
+- The logo/favicons use relative URLs, suitable for a GitHub Pages repository subpath.
+- If the old tab icon persists, hard refresh (Ctrl+Shift+R) or open a private window.
+- For Flutter, add the PNG under assets/images and list it in pubspec.yaml; Flutter launcher icons require separate platform icon generation.
 
 
-## Reviewing the pilot
-
-Only the project administrators can review all respondents in the Supabase dashboard. Students cannot access each other's data.
-
-1. Open Supabase > **Table Editor** to inspect `activity_events` and `feedback` after testing.
-2. Or run `research-summary.sql` in **SQL Editor** to see a participant-level summary of active days, logged actions and ratings.
-3. Save or export records through the dashboard according to your approved research consent and data-retention plan.
-
-The progress screen has an optional CSV or JSON export for a **student's own record**; participants no longer need to manually export files just to submit feedback. Feedback is online as soon as it is saved.
-
-## Storage, privacy, and limitations
-
-- Planner items, activity logs, tutorial completion and feedback are persisted **online** in Supabase, identified by a user account.
-- Supabase Auth may store a local **login session token**, to remember the sign-in. That is different from saving the planner data in the browser. The app doesn't write planner items to localStorage.
-- The project owners should collect informed consent, disclose the study purpose and data collected, limit who can view results, and define when they will delete test data. Students should avoid entering confidential/personal information into task names or written feedback.
-- **Reset planner only** clears classes, tasks and preferences while preserving the study activity history and feedback. No student-facing action deletes research logs. If deletion is needed, a project administrator must handle it through Supabase under the agreed privacy policy.
-- Without access to an actual Supabase project, the app's cloud requests cannot be integration-tested end to end. JavaScript syntax/static checks and UI mock tests do not substitute for validating your live database and email confirmations.
-- Route ETA is still based on a user-entered estimate; Google Maps opens an external route. No live Google Maps travel-time integration has been added.
-- This version uses a simple cloud-saved JSON planner per user. If the same account makes conflicting edits on two devices at exactly the same time, the **last save wins**. Avoid editing on two devices simultaneously during pilot testing.
-
-## Developer references
-
-- Supabase JavaScript client: <https://supabase.com/docs/reference/javascript/initializing>
-- Row Level Security: <https://supabase.com/docs/guides/database/postgres/row-level-security>
-- Authentication: <https://supabase.com/docs/guides/auth>
+## v9 journey planning
+See `COMMUTE_PLANNER_V9.md` for direct mapped jeepney journeys plus walking directions and operational limitations.

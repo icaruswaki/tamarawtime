@@ -17,6 +17,7 @@ let writeQueue = Promise.resolve(), tutorialIndex=0, gpsPosition=null;
 let mapOriginText='', shownMapSignature='';
 let liveMap=null, liveMarker=null, campusMarker=null, liveRoute=null, gpsWatchId=null, routeSeq=0, lastRouteAt=0;
 let activeRouteEstimate=null, routeRequestBusy=false, lastRouteOrigin=null, autoRouteTimer=null;
+let jeepneyOptions=[], jeepneyMarkers=[], jeepneyWalkLayers=[], jeepneySelectionSerial=0, jeepneyRequestSerial=0, jeepneyRequestBusy=false;
 const themeNames={forest:'FEU Forest',ocean:'Coastal Blue',sunset:'Golden Hour',night:'Midnight'};
 function currentTravel(c,mode=state.settings.mode){
  const campus=c?.campus||state.settings.campus;
@@ -99,7 +100,7 @@ function showTutorial(){tutorialIndex=0;drawTutorial();if(!$('#tutorial-dialog')
 function finishTutorial(){state.onboarding.finished=true;$('#tutorial-dialog').close();saveToCloud();}
 const badge = label=>`<span class="badge">${esc(label)}</span>`;
 const classCard = c => `<div class="item"><div><b>${esc(c.name)}</b><small>${esc(days[Number(c.day)])} · ${ampm(c.time)}–${ampm(c.end)} · ${esc(c.room||'Room not set')}</small><small>${esc(c.campus||state.settings.campus)}</small></div><div class="actions-inline"><button class="iconbutton" type="button" data-action="del-class" data-id="${esc(c.id)}" aria-label="Delete ${esc(c.name)}">×</button></div></div>`;
-function navigate(next){if(currentPage==='commute'&&next!=='commute'){stopGps();++routeSeq;if(liveMap){liveMap.remove();liveMap=null;}}
+function navigate(next){if(currentPage==='commute'&&next!=='commute'){stopGps();++routeSeq;++jeepneyRequestSerial;jeepneyRequestBusy=false;clearJeepneyMap();if(liveMap){liveMap.remove();liveMap=null;}}
  currentPage=next;
  document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===next));
  const title={home:['Good day, '+state.settings.name+'! 👋','Focus on arriving to class on time.'],schedule:['Class Schedule','Your weekly class timetable.'],commute:['Commute Planner','Know when to get ready and when to leave.'],settings:['Settings','Adjust your punctuality preferences.']}[next];
@@ -117,8 +118,8 @@ function render(){
   html=`<div class="section-head"><h2>Weekly class schedule</h2><button class="primary" data-action="add-class">+ Add class</button></div><div class="card">${state.classes.length?[...state.classes].sort((a,b)=>Number(a.day)-Number(b.day)||a.time.localeCompare(b.time)).map(classCard).join(''):'<div class="empty">No classes saved yet.</div>'}</div><div class="alert" style="margin-top:18px">Add your real class times. This app does not automatically import FEU attendance records.</div>`;
  }else if(currentPage==='commute'){
   const opts=upcoming().map(c=>`<option value="${esc(c.id)}">${esc(c.name)} — ${esc(days[Number(c.day)])} ${ampm(c.time)}</option>`).join('');
-  html=`<div class="grid two"><div class="card"><h2>Plan your next trip</h2><div class="field"><label for="class-select">Choose a class</label><select id="class-select">${opts||'<option value="">Add a class first</option>'}</select></div><div class="field"><label for="trip-mode">Travel mode</label><select id="trip-mode">${['Transit','Jeepney','Train','Bus / UV','Driving','Walking'].map(m=>`<option ${state.settings.mode===m?'selected':''}>${m}</option>`).join('')}</select></div><div class="field"><label for="trip-travel">Journey time (minutes) <span class="auto-indicator" id="eta-status">${activeRouteEstimate?'Auto from GPS':'Fallback estimate'}</span></label><input id="trip-travel" type="number" min="1" max="480" value="${currentTravel(upcoming()[0])}"><p class="mini muted">Walking/driving: start GPS and the app will calculate route duration automatically. Other modes use your estimate until verified transit data is connected.</p></div><div class="formgrid"><div class="field"><label for="trip-prep">Preparation minutes</label><input id="trip-prep" type="number" min="0" max="240" value="${state.settings.prep}"></div><div class="field"><label for="trip-buffer">Arrival buffer minutes</label><input id="trip-buffer" type="number" min="0" max="120" value="${state.settings.buffer}"></div></div><button class="secondary" data-action="save-commute">Save these as default settings</button><div style="margin-top:22px"><h2>Your recommended routine</h2><div id="commute-output"></div></div></div>
-  <div class="card map-card"><div class="section-head" style="margin:0 0 8px"><h2>Live GPS & commute routes</h2>${badge('OpenStreetMap')}</div><p class="mini muted">Track your position on the map while this page is open. Select a transport option to see what routing information is available.</p><div class="map-buttons"><button class="primary" type="button" data-action="location">◎ Start live GPS</button><button class="secondary" type="button" data-action="stop-location">Stop tracking</button><button class="secondary" type="button" data-action="show-map">Find route</button></div><p class="mini muted" id="gps-output" role="status">GPS is off. Location permission is required to track you.</p><div id="map-host" class="map-host" aria-label="Interactive OpenStreetMap"></div><div id="route-info" class="route-info" aria-live="polite"></div><div class="transport-notes"><h3>Commute options</h3><p class="mini muted">Jeepney, train, bus and UV routes require verified local transit datasets. Select one to see guidance; no stops, fares or transit ETAs are fabricated. Walking/driving route previews use a public demonstration routing service and are not traffic-aware.</p><a href="https://sakay.ph/" target="_blank" rel="noopener noreferrer">Check verified public transit options on Sakay.ph ↗</a></div><p class="mini muted">Map tiles are provided by OpenStreetMap contributors. Routing and tile providers receive route coordinates as needed. Tamaraw Time does not upload GPS coordinates to its student database.</p></div></div>`;
+  html=`<div class="grid two"><div class="card"><h2>Plan your next trip</h2><div class="field"><label for="class-select">Choose a class</label><select id="class-select">${opts||'<option value="">Add a class first</option>'}</select></div><div class="field"><label for="trip-mode">Travel mode</label><select id="trip-mode">${['Transit','Jeepney','Train','Bus / UV','Driving','Walking'].map(m=>`<option ${state.settings.mode===m?'selected':''}>${m}</option>`).join('')}</select></div><div class="field"><label for="trip-travel">Journey time (minutes) <span class="auto-indicator" id="eta-status">${activeRouteEstimate?'Auto from GPS':'Fallback estimate'}</span></label><input id="trip-travel" type="number" min="1" max="480" value="${currentTravel(upcoming()[0])}"><p class="mini muted">Walking/driving route times update automatically. Jeepney mode shows mapped OSM routes and stops when available, but uses your editable travel estimate (no live jeepney ETA).</p></div><div class="formgrid"><div class="field"><label for="trip-prep">Preparation minutes</label><input id="trip-prep" type="number" min="0" max="240" value="${state.settings.prep}"></div><div class="field"><label for="trip-buffer">Arrival buffer minutes</label><input id="trip-buffer" type="number" min="0" max="120" value="${state.settings.buffer}"></div></div><button class="secondary" data-action="save-commute">Save these as default settings</button><div style="margin-top:22px"><h2>Your recommended routine</h2><div id="commute-output"></div></div></div>
+  <div class="card map-card"><div class="section-head" style="margin:0 0 8px"><h2>Live GPS & commute routes</h2>${badge('OpenStreetMap')}</div><p class="mini muted">Track your position on the map while this page is open. Select a transport option to see what routing information is available.</p><div class="map-buttons"><button class="primary" type="button" data-action="location">◎ Start live GPS</button><button class="secondary" type="button" data-action="stop-location">Stop tracking</button><button class="secondary" type="button" data-action="show-map">Find route</button></div><p class="mini muted" id="gps-output" role="status">GPS is off. Location permission is required to track you.</p><div id="map-host" class="map-host" aria-label="Interactive OpenStreetMap"></div><div id="route-info" class="route-info" aria-live="polite"></div><div class="transport-notes"><h3>Commute options</h3><p class="mini muted">Jeepney: search OpenStreetMap route relations near your GPS position and campus. Direct routes require mapped stops in the correct order; service availability is NOT live-verified. For other transit modes, see Sakay.ph. Walking/driving use a public routing service with no live traffic data.</p><a href="https://sakay.ph/" target="_blank" rel="noopener noreferrer">Check verified public transit options on Sakay.ph ↗</a></div><p class="mini muted">Map data © OpenStreetMap contributors. When you press Find route, your GPS coordinates are shared with external map/routing providers (including Overpass for Jeepney). They are not uploaded to the Tamaraw Time student database. Mapped routes may be outdated: confirm stops and service locally.</p></div></div>`;
  }else if(currentPage==='settings'){
   html=`<div class="grid two"><div class="card"><h2>Student preferences</h2><form id="settings-form"><div class="field"><label>Name</label><input name="name" maxlength="40" required value="${esc(state.settings.name)}"></div><div class="field"><label>Preferred FEU campus</label><select name="campus">${Object.keys(campusOptions).map(c=>`<option ${state.settings.campus===c?'selected':''}>${esc(c)}</option>`).join('')}</select></div><div class="field"><label>Travel mode</label><select name="mode">${['Transit','Jeepney','Train','Bus / UV','Driving','Walking'].map(m=>`<option ${state.settings.mode===m?'selected':''}>${m}</option>`).join('')}</select></div><div class="field"><label>Default travel time (min)</label><input name="travel" type="number" min="1" max="480" required value="${state.settings.travel}"></div><div class="field"><label>Get-ready time (min)</label><input name="prep" type="number" min="0" max="240" required value="${state.settings.prep}"></div><div class="field"><label>Arrival buffer (min)</label><input name="buffer" type="number" min="0" max="120" required value="${state.settings.buffer}"></div><div class="field"><label>Color scheme</label><div class="theme-grid" role="radiogroup" aria-label="App color scheme">${Object.entries(themeNames).map(([key,label])=>`<button type="button" role="radio" aria-checked="${(state.settings.theme||'forest')===key}" class="theme-choice ${(state.settings.theme||'forest')===key?'selected':''}" data-theme-choice="${key}"><span class="theme-swatch theme-${key}" aria-hidden="true"></span><span>${label}</span><span class="theme-check">✓</span></button>`).join('')}</div><input type="hidden" name="theme" value="${esc(state.settings.theme||'forest')}"></div><button class="primary" type="submit">Save settings</button></form></div><div class="stack"><div class="card"><h2>Your account</h2><p class="muted">Your class schedule and commute preferences are saved in your Tamaraw Time account in Supabase. Study activity is recorded privately for the research team, not shown as a student progress score.</p><button type="button" class="secondary" data-action="refresh-cloud">Refresh cloud data</button><button type="button" class="secondary" data-action="export">Export your schedule (JSON)</button><button type="button" class="danger" data-action="reset">Clear schedule and preferences</button><div class="settings-help"><h3>First-time guide</h3><p class="mini muted">Replay the short punctuality and commute tutorial.</p><button type="button" class="secondary" data-action="tutorial">Replay tutorial</button></div></div></div></div>`;
  }
@@ -129,9 +130,9 @@ function render(){
  refreshDepartureCountdown();
  if(currentPage==='commute'){
   updateCommute();
-  $('#class-select').addEventListener('change',()=>{if(activeRouteEstimate?.campus!==(selectedClass()?.campus||state.settings.campus))activeRouteEstimate=null;$('#trip-travel').value=currentTravel(selectedClass(),$('#trip-mode').value);updateCommute();resetMapForCampus();scheduleAutoRoute(true);});
+  $('#class-select').addEventListener('change',()=>{++routeSeq;++jeepneyRequestSerial;jeepneyRequestBusy=false;if(activeRouteEstimate?.campus!==(selectedClass()?.campus||state.settings.campus))activeRouteEstimate=null;$('#trip-travel').value=currentTravel(selectedClass(),$('#trip-mode').value);updateCommute();resetMapForCampus();scheduleAutoRoute(true);});
   for(const id of ['trip-travel','trip-buffer','trip-prep'])$('#'+id).addEventListener('input',updateCommute);
-  $('#trip-mode').addEventListener('change',()=>{$('#trip-travel').value=currentTravel(selectedClass(),$('#trip-mode').value);updateCommute();renderTransportNote();scheduleAutoRoute(true);});
+  $('#trip-mode').addEventListener('change',()=>{++routeSeq;++jeepneyRequestSerial;jeepneyRequestBusy=false;activeRouteEstimate=null;clearRouteOverlays();$('#trip-travel').value=currentTravel(selectedClass(),$('#trip-mode').value);updateCommute();renderTransportNote();scheduleAutoRoute(true);});
   initLiveMap();
  }
 }
@@ -155,7 +156,7 @@ function initLiveMap(){
  campusMarker=L.marker(dest).addTo(liveMap).bindPopup('Your selected FEU campus');
  if(gpsPosition)updateGpsMarker();renderTransportNote();setTimeout(()=>liveMap?.invalidateSize(),150);
 }
-function resetMapForCampus(){if(!liveMap)return;const dest=destinationCoords();campusMarker.setLatLng(dest);if(liveRoute){liveMap.removeLayer(liveRoute);liveRoute=null;}if(gpsPosition)liveMap.fitBounds([dest,[gpsPosition.lat,gpsPosition.lng]],{padding:[35,35]});else liveMap.setView(dest,14);renderTransportNote();}
+function resetMapForCampus(){if(!liveMap)return;const dest=destinationCoords();campusMarker.setLatLng(dest);clearRouteOverlays();if(gpsPosition)liveMap.fitBounds([dest,[gpsPosition.lat,gpsPosition.lng]],{padding:[35,35]});else liveMap.setView(dest,14);renderTransportNote();}
 function updateGpsMarker(){if(!liveMap||!gpsPosition)return;const p=[gpsPosition.lat,gpsPosition.lng];if(!liveMarker){liveMarker=L.circleMarker(p,{radius:11,color:'#ffffff',weight:3,fillColor:'#1976d2',fillOpacity:1,className:'tt-gps-marker'}).addTo(liveMap).bindPopup('Your live position');}else liveMarker.setLatLng(p);liveMap.fitBounds([p,destinationCoords()],{padding:[45,45],maxZoom:16});}
 function stopGps(){if(gpsWatchId!==null){navigator.geolocation.clearWatch(gpsWatchId);gpsWatchId=null;}if(autoRouteTimer){clearTimeout(autoRouteTimer);autoRouteTimer=null;}const el=$('#gps-output');if(el)el.textContent='Live GPS tracking stopped.';}
 function scheduleAutoRoute(force=false){
@@ -165,11 +166,73 @@ function scheduleAutoRoute(force=false){
  if(!force&&lastRouteOrigin&&distanceMeters(gpsPosition,lastRouteOrigin)<200&&Date.now()-lastRouteAt<120000)return;
  autoRouteTimer=setTimeout(()=>{autoRouteTimer=null;findLiveRoute(true);},force?300:1400);
 }
-function renderTransportNote(){const el=$('#route-info');if(!el)return;const mode=$('#trip-mode')?.value||'Transit';if(['Jeepney','Train','Bus / UV','Transit'].includes(mode)){el.innerHTML='<div class="alert">'+esc(mode)+' routes are not yet connected to a verified Metro Manila transit dataset. Use the map to track your position, and consult Sakay.ph for available public transport directions. The travel-time field is a manual estimate.</div>';}else{el.innerHTML='<div class="alert">'+esc(mode)+' route preview available when GPS is enabled. Public routing estimates are not live traffic predictions.</div>';}}
+function clearJeepneyMap(){jeepneySelectionSerial++;for(const marker of [...jeepneyMarkers,...jeepneyWalkLayers])if(liveMap)liveMap.removeLayer(marker);jeepneyMarkers=[];jeepneyWalkLayers=[];jeepneyOptions=[];}
+function clearRouteOverlays(){if(liveRoute&&liveMap)liveMap.removeLayer(liveRoute);liveRoute=null;clearJeepneyMap();}
+function renderTransportNote(){
+ const el=$('#route-info');if(!el)return;
+ const mode=$('#trip-mode')?.value||'Transit';
+ if(mode==='Jeepney')el.innerHTML='<div class="alert">Select <b>Find route</b> after enabling GPS. We find mapped direct jeepney services and, where available, show pedestrian directions to boarding and alighting points. Results are not live-confirmed operating services. No fares or transit ETAs are generated.</div>';
+ else if(['Train','Bus / UV','Transit'].includes(mode))el.innerHTML='<div class="alert">'+esc(mode)+' routing is not available within this app yet. Use Sakay.ph for transit planning. Departure uses your editable journey estimate.</div>';
+ else el.innerHTML='<div class="alert">'+esc(mode)+' route preview is available when GPS is enabled. Times are estimates, not real-time traffic predictions.</div>';
+}
+async function selectJeepneyRoute(index){
+ const route=jeepneyOptions[index];if(!route||!liveMap||!gpsPosition)return;
+ const seq=++jeepneySelectionSerial,origin={...gpsPosition},campus=destinationCoords();
+ if(liveRoute)liveMap.removeLayer(liveRoute);
+ for(const marker of [...jeepneyMarkers,...jeepneyWalkLayers])liveMap.removeLayer(marker);
+ jeepneyMarkers=[];jeepneyWalkLayers=[];
+ liveRoute=L.polyline(route.points,{color:'#ed9d25',weight:6,opacity:.96,className:'tt-route-line'}).addTo(liveMap);
+ const stops=[{point:route.board,caption:'Mapped boarding stop',color:'#1e9b73'},{point:route.alight,caption:'Mapped alighting stop',color:'#cc6239'}];
+ for(const item of stops){const marker=L.circleMarker([item.point.lat,item.point.lng],{radius:9,color:'#fff',weight:3,fillColor:item.color,fillOpacity:1}).addTo(liveMap).bindPopup('<b>'+item.caption+'</b><br>'+esc(item.point.name));jeepneyMarkers.push(marker);}
+ const bounds=L.latLngBounds([route.board.lat,route.board.lng],[route.alight.lat,route.alight.lng]);
+ bounds.extend([origin.lat,origin.lng]);bounds.extend(campus);liveMap.fitBounds(bounds,{padding:[40,40],maxZoom:15});
+ document.querySelectorAll('.jeepney-route').forEach((node,i)=>{node.classList.toggle('selected',i===index);node.setAttribute('aria-pressed',String(i===index));});
+ const details=$('#jeepney-plan');if(!details)return;
+ details.innerHTML='<div class="jeepney-loading">Checking pedestrian paths to and from mapped stops…</div>';
+ const step=(number,title,content)=>'<li><b>'+number+'. '+title+'</b><span>'+content+'</span></li>';
+ const distanceText=leg=>leg.status==='routed'?(leg.distanceMeters+' m · approximately '+leg.minutes+' min walking (routing estimate)'):(leg.status==='short'?'Nearby stop (short connection)':'Pedestrian route unavailable; see stop location on the map');
+ try{
+  const walk=await JeepneyRouting.planWalkingLegs(origin,{lat:campus[0],lng:campus[1]},route);
+  if(seq!==jeepneySelectionSerial||currentPage!=='commute'||$('#trip-mode')?.value!=='Jeepney')return;
+  for(const leg of [walk.access,walk.exit]){
+   if(leg.status!=='routed')continue;
+   jeepneyWalkLayers.push(L.polyline(leg.points,{color:'#1976d2',weight:5,dashArray:'7 8',opacity:.9}).addTo(liveMap));
+  }
+  let summary='Jeepney ride duration, waiting, and traffic are unknown.';
+  if(walk.knownWalkingMinutes!==null)summary+=' Known walking segments: approximately '+walk.knownWalkingMinutes+' minutes total.';
+  details.innerHTML='<div class="jeepney-plan"><h3>Suggested mapped journey · one jeepney</h3><ol>'+step(1,'Walk to boarding stop',esc(route.board.name)+' — '+esc(distanceText(walk.access)))+step(2,'Board jeepney',esc(route.ref?route.ref+' · '+route.name:route.name)+' (mapped service; verify signage and availability)')+step(3,'Get off',esc(route.alight.name)) +step(4,'Walk to campus',esc(distanceText(walk.exit)))+'</ol><p class="mini muted">'+esc(summary)+' The departure calculator continues using the manual total journey estimate, including all walking, waiting and riding.</p></div>';
+ }catch(err){if(seq===jeepneySelectionSerial&&details)details.innerHTML='<div class="alert">The route line is mapped, but walking directions could not be loaded. Confirm walking access locally.</div>';}
+}
+
+async function findJeepneyRoutes(){
+ const el=$('#route-info');if(!el||!liveMap)return;
+ if(!gpsPosition){el.innerHTML='<div class="alert">Turn on live GPS first, then tap Find route.</div>';return;}
+ if(jeepneyRequestBusy){el.textContent='A jeepney search is already in progress…';return;}
+ if(!window.JeepneyRouting){el.textContent='Jeepney route service failed to load. Refresh the page or try Sakay.ph.';return;}
+ const requestId=++jeepneyRequestSerial;
+ const origin={...gpsPosition},dest=destinationCoords();
+ clearRouteOverlays();jeepneyRequestBusy=true;
+ el.innerHTML='<div class="jeepney-loading" role="status">🚌 Looking for mapped jeepney routes and stops near your location… This may take a few seconds.</div>';
+ try{
+  const result=await JeepneyRouting.findRoutes(origin,{lat:dest[0],lng:dest[1]});
+  if(requestId!==jeepneyRequestSerial||currentPage!=='commute'||$('#trip-mode')?.value!=='Jeepney')return;
+  if(result.status!=='found'){
+   el.innerHTML='<div class="alert">'+esc(result.message)+'</div><p class="mini muted">Your departure time still uses your editable travel estimate. We cannot infer jeepney itineraries from a road route alone.</p><a class="jeepney-fallback" href="https://sakay.ph/" target="_blank" rel="noopener noreferrer">Check transit options on Sakay.ph ↗</a>';
+   return;
+  }
+  jeepneyOptions=result.routes;
+  el.innerHTML='<div class="jeepney-results-title"><strong>'+result.routes.length+' mapped jeepney connection'+(result.routes.length===1?'':'s')+'</strong><span class="mini muted">OSM data · single-ride candidates, not live-verified</span></div><div class="jeepney-list">'+result.routes.map((r,i)=>'<button type="button" class="jeepney-route" data-action="select-jeepney" data-index="'+i+'" aria-pressed="false"><span class="jeepney-route-head">🚌 '+esc(r.ref?`${r.ref} · ${r.name}`:r.name)+'</span><span class="jeepney-route-step">Board at mapped stop: <b>'+esc(r.board.name)+'</b> ('+r.accessMeters+' m straight-line distance)</span><span class="jeepney-route-step">Alight at mapped stop: <b>'+esc(r.alight.name)+'</b> ('+r.exitMeters+' m straight-line distance)</span><span class="jeepney-route-source">OSM relation #'+r.id+' · View route on map</span></button><a class="jeepney-osm-source" href="'+r.sourceUrl+'" target="_blank" rel="noopener noreferrer">View OSM source #'+r.id+' ↗</a>').join('')+'</div><div id="jeepney-plan" aria-live="polite"></div><div class="alert">Mapped stop coordinates are not walking directions or proof that boarding is legally permitted today. Confirm route, direction, boarding rules, and fares locally. Jeepney departure still uses your editable estimate—no live transit ETA is available.</div><a class="jeepney-fallback" href="https://sakay.ph/" target="_blank" rel="noopener noreferrer">Cross-check with Sakay.ph ↗</a>';
+  selectJeepneyRoute(0);
+ }catch(error){
+  if(requestId!==jeepneyRequestSerial||currentPage!=='commute')return;
+  el.innerHTML='<div class="alert">Jeepney map data could not be loaded ('+esc(error.message||'network error')+'). Your manual travel estimate remains unchanged.</div><a class="jeepney-fallback" href="https://sakay.ph/" target="_blank" rel="noopener noreferrer">Find transit directions on Sakay.ph ↗</a>';
+ }finally{if(requestId===jeepneyRequestSerial)jeepneyRequestBusy=false;}
+}
+
 async function findLiveRoute(automatic=false){
  const el=$('#route-info');if(!liveMap||!el)return;
  if(!gpsPosition){el.textContent='Start live GPS first to calculate a route from your position.';return;}
- const mode=$('#trip-mode')?.value||'Transit';if(!['Walking','Driving'].includes(mode)){renderTransportNote();return;}
+ const mode=$('#trip-mode')?.value||'Transit';if(mode==='Jeepney'){await findJeepneyRoutes();return;}if(!['Walking','Driving'].includes(mode)){renderTransportNote();return;}
  const profile=mode==='Walking'?'foot':'driving',dest=destinationCoords(),origin=gpsPosition,seq=++routeSeq;
  lastRouteAt=Date.now();lastRouteOrigin={...origin};
  if(routeRequestBusy)return;
@@ -255,6 +318,7 @@ $('#content').addEventListener('click',async event=>{
  }
  if(action==='stop-location'){stopGps();return;}
  if(action==='show-map'){await findLiveRoute(false);await logActivity('maps_opened');return;}
+ if(action==='select-jeepney'){selectJeepneyRoute(Number(button.dataset.index));return;}
  if(action==='use-route-eta'){const minutes=Number($('#route-info')?.dataset.routeMinutes);if(Number.isFinite(minutes)&&minutes>0){$('#trip-travel').value=minutes;updateCommute();toast('Route estimate applied. Save commute settings to keep it.');}return;}
  if(action==='refresh-cloud'){
   try{await refreshCloud();toast('Cloud data refreshed ✓');}catch(err){toast('Refresh failed: '+(err.message||err));}return;
