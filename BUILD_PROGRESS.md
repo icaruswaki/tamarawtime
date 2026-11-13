@@ -1,7 +1,7 @@
 # Tamaraw Time web app build report
 
-**Build status:** Complete  
-**Build date:** 14 November 2026  
+**Build status:** Complete
+**Build date:** 14 November 2026
 **Delivery:** Pushed to `origin/main` in commit `a727b6f` (`Upgrade web app commute and schedule planning`).
 
 ## Work completed
