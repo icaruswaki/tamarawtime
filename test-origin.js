@@ -1,0 +1,15 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+const source=fs.readFileSync('app.js','utf8'),fn=source.split('\n').find(line=>line.startsWith('function selectedOrigin'));
+const values={},context={gpsPosition:{lat:14.6,lng:121},originMode:'gps',customOrigin:{lat:14.61,lng:121.01},campusCoords:{'FEU Manila':[14.6046,120.9867]},$:(selector)=>values[selector]||null};
+vm.createContext(context);vm.runInContext(fn,context);
+assert.equal(vm.runInContext('selectedOrigin().label',context),'Current GPS position');
+values['#origin-mode']={value:'campus'};values['#origin-campus']={value:'FEU Manila'};
+assert.equal(vm.runInContext('selectedOrigin().point.lat',context),14.6046);
+values['#origin-mode']={value:'map'};
+assert.equal(vm.runInContext('selectedOrigin().label',context),'Map-selected point');
+values['#origin-mode']={value:'coordinates'};values['#origin-coordinates']={value:'14.62, 121.02'};
+assert.equal(vm.runInContext('selectedOrigin().point.lng',context),121.02);
+values['#origin-coordinates']={value:'invalid'};
+assert.equal(vm.runInContext('selectedOrigin()',context),null);
+console.log('PASS: GPS, campus, map and coordinate origins with invalid-coordinate rejection');

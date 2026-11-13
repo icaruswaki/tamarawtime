@@ -47,3 +47,17 @@ Open `demo.html` via a local web server (e.g., `python -m http.server 8000`, bro
 
 ## v9 journey planning
 See `COMMUTE_PLANNER_V9.md` for direct mapped jeepney journeys plus walking directions and operational limitations.
+
+## Web app feature update (v10)
+
+- Kept the web app's existing first-time visual tutorial and its completion/replay behavior.
+- Added monthly class calendar, multi-weekday recurring classes, class editing, and overlap warnings. Existing cloud records with a single `day` field remain supported.
+- Added general, per-campus, and class-specific manual travel estimates with fresh route estimates taking temporary priority.
+- Added a separate on-device planner in browser storage, independent of Supabase and research activity logging.
+- Added browser session choice (Remember me), password recovery, and password changes using Supabase Auth.
+- Improved GPS feedback, background tracking shutdown, route cancellation on destination changes, and route estimate refresh/expiry. Manual commute values remain available when routing is unavailable.
+- Added commute origins from live GPS, FEU campuses, map-picked points, or entered coordinates.
+- Added reviewed rail routing with actual pedestrian station access and reviewed interchanges, the supported LRT-2 stored-value fare matrix, a searchable 51-station reference, and a separate historical Sakay directory.
+- Preserved conservative fare/ETA handling: unsupported fares stay unavailable, rail topology is not presented as a timetable, and the historical Sakay archive never produces current directions.
+
+See `TRANSIT_PLANNER.md` for transit sources and limits. Deploy the complete `assets/transit/` folder with the web files. Run the checks in `TRANSIT_PLANNER.md` plus `node test-origin.js` before release. The cloud schedule payload and database schema are unchanged; `weekdays` is an optional addition that older single-day records do not need.

@@ -1,0 +1,17 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+const makeStorage=()=>({getItem(key){return Object.hasOwn(this,key)?this[key]:null;},setItem(key,value){this[key]=String(value);},removeItem(key){delete this[key];}});
+const localStorage=makeStorage(),sessionStorage=makeStorage();
+let authOptions;
+const window={TAMARAW_CLOUD:{supabaseUrl:'https://example.supabase.co',supabasePublishableKey:'sb_publishable_test_key'},supabase:{createClient(_url,_key,options){authOptions=options;return {auth:{}};}}};
+const context={window,localStorage,sessionStorage};vm.createContext(context);vm.runInContext(fs.readFileSync('cloud-store.js','utf8'),context);
+const store=vm.runInContext('CloudStore',context),authStorage=authOptions.auth.storage,key='sb-example-auth-token';
+assert.equal(store.getRemember(),true);
+store.setRemember(false);authStorage.setItem(key,'session-token');
+assert.equal(localStorage.getItem(key),null);assert.equal(sessionStorage.getItem(key),'session-token');
+store.setRemember(true);
+assert.equal(localStorage.getItem(key),'session-token');assert.equal(sessionStorage.getItem(key),null);
+store.setRemember(false);
+assert.equal(localStorage.getItem(key),null,'Turning Remember me off removes persisted sessions');
+assert.equal(authOptions.auth.persistSession,true);
+console.log('PASS: Supabase auth session storage follows Remember me and does not store credentials in planner data');
