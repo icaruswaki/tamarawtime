@@ -45,3 +45,18 @@ All checks below passed on the final implementation before commit:
 ## Repository delivery
 
 Implementation and transit data are committed and pushed to `origin/main` at `a727b6f`. This report is included as a follow-up repository commit.
+
+## Commute planner and map update
+
+**Update date:** 14 November 2026
+
+- Reworked the commute page into a full-screen route planner: map canvas, floating origin/destination and travel-mode controls, GPS and map-picked origins, route results, and class departure recommendations. The panel becomes a bottom sheet on small screens.
+- Removed the editable trip-duration field from the planner. Walking and driving route durations now fill the ETA automatically and recalculate the recommended leave time. Reviewed transit duration is applied only when that data is present; no rail or jeepney travel time is fabricated.
+- Corrected walking route requests to use the pedestrian OSRM profile. Origin, class, and mode changes request fresh route results automatically when an origin is available.
+- Bundled Leaflet 1.9.4 locally with its BSD 2-Clause license and marker assets so the app no longer needs a Leaflet CDN to initialize the map. Added an OpenStreetMap.de tile layer beneath the primary OpenStreetMap tiles and invalidate the map after its responsive container is laid out.
+- Kept the first-time web tutorial unchanged; the existing tutorial contract test passes.
+- Reused Sakay-style route-planning patterns, while retaining the existing historical Sakay dataset as reference-only. Sakay's public frontend repo is MIT-licensed, but its separately licensed GTFS data ends on 30 June 2020 and its legacy planner endpoint was unavailable during review. That archived feed is not used to calculate current ETAs.
+
+### Update verification
+
+The JavaScript syntax check and all nine existing logic, schedule, route, tutorial, origin, cloud-store, and notification tests passed after the changes. A headless Chrome smoke check confirmed the commute view, responsive panel, Leaflet map instance, and full-height map container. External raster map requests were blocked in that browser sandbox, so live tile imagery could not be confirmed there; the app retains both primary and fallback tile sources for normal browsers.
