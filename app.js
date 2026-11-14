@@ -17,7 +17,7 @@ let writeQueue = Promise.resolve(), tutorialIndex=0, gpsPosition=null,editingCla
 let recoveryPending=false;
 let scheduleMonth=null,scheduleSelectedKey='';
 let mapOriginText='', shownMapSignature='';
-let liveMap=null, liveMarker=null, campusMarker=null, liveRoute=null, gpsWatchId=null, routeSeq=0, lastRouteAt=0;
+let liveMap=null, liveMarker=null, campusMarker=null, liveRoute=null, liveMapResizeObserver=null, gpsWatchId=null, routeSeq=0, lastRouteAt=0;
 let activeRouteEstimate=null, routeRequestBusy=false, routeAbortController=null, lastRouteOrigin=null, autoRouteTimer=null;
 let jeepneyOptions=[], jeepneyMarkers=[], jeepneyWalkLayers=[], jeepneySelectionSerial=0, jeepneyRequestSerial=0, jeepneyRequestBusy=false;
 let railOptions=[],railLayers=[];
@@ -114,7 +114,7 @@ function finishTutorial(){state.onboarding.finished=true;$('#tutorial-dialog').c
 const badge = label=>`<span class="badge">${esc(label)}</span>`;
 const classCard = c => `<div class="item"><div><b>${esc(c.name)}</b><small>${esc(classWeekdays(c).map(d=>days[d].slice(0,3)).join(', '))} · ${ampm(c.time)}–${ampm(c.end)} · ${esc(c.room||'Room not set')}</small><small>${esc(c.campus||state.settings.campus)}${c.travel?` · Class travel estimate ${Number(c.travel)} min`:''}</small></div><div class="actions-inline"><button class="iconbutton" type="button" data-action="edit-class" data-id="${esc(c.id)}" aria-label="Edit ${esc(c.name)}">✎</button><button class="iconbutton" type="button" data-action="del-class" data-id="${esc(c.id)}" aria-label="Delete ${esc(c.name)}">×</button></div></div>`;
 function cancelRoadRoute(){++routeSeq;routeAbortController?.abort();routeAbortController=null;routeRequestBusy=false;}
-function navigate(next){if(currentPage==='commute'&&next!=='commute'){stopGps();cancelRoadRoute();++jeepneyRequestSerial;jeepneyRequestBusy=false;clearJeepneyMap();clearRailMap();if(liveMap){liveMap.remove();liveMap=null;}}
+function navigate(next){if(currentPage==='commute'&&next!=='commute'){stopGps();cancelRoadRoute();++jeepneyRequestSerial;jeepneyRequestBusy=false;clearJeepneyMap();clearRailMap();liveMapResizeObserver?.disconnect();liveMapResizeObserver=null;if(liveMap){liveMap.remove();liveMap=null;}}
  currentPage=next;
  document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===next));
  const title={home:['Good day, '+state.settings.name+'! 👋','Focus on arriving to class on time.'],schedule:['Class Schedule','Your weekly class timetable.'],commute:['Commute Planner','Know when to get ready and when to leave.'],settings:['Settings','Adjust your punctuality preferences.']}[next];
@@ -188,12 +188,24 @@ function invalidateOriginRoute(){activeRouteEstimate=null;cancelRoadRoute();++je
 function setOriginMarker(){if(!liveMap||!customOrigin)return;if(originMarker)liveMap.removeLayer(originMarker);originMarker=L.circleMarker([customOrigin.lat,customOrigin.lng],{radius:9,color:'#fff',weight:3,fillColor:'#d59622',fillOpacity:1}).addTo(liveMap).bindPopup('Selected route origin');}
 function initLiveMap(){
  if(!window.L){$('#map-host').textContent='Map library unavailable. Check your internet connection.';return;}
+ liveMapResizeObserver?.disconnect();liveMapResizeObserver=null;
  if(liveMap){clearRouteOverlays();if(originMarker)liveMap.removeLayer(originMarker);liveMap.remove();liveMap=null;}liveMarker=null;campusMarker=null;liveRoute=null;originMarker=null;
  const dest=destinationCoords();liveMap=L.map('map-host',{zoomControl:true}).setView(dest,14);
- L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'}).addTo(liveMap);
+ const tiles=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors · fallback tiles <a href="https://www.openstreetmap.de/">OpenStreetMap.de</a>'}).addTo(liveMap);
+ tiles.on('tileerror',event=>{
+  const tile=event.tile,coords=event.coords;
+  if(!tile||!coords||tile.dataset.ttFallback)return;
+  tile.dataset.ttFallback='true';
+  tile.addEventListener('load',fallbackEvent=>fallbackEvent.stopImmediatePropagation(),{once:true,capture:true});
+  tile.addEventListener('error',fallbackEvent=>{fallbackEvent.stopImmediatePropagation();tile.style.opacity='0';},{once:true,capture:true});
+  tile.src=`https://tile.openstreetmap.de/${coords.z}/${coords.x}/${coords.y}.png`;
+ });
  campusMarker=L.marker(dest).addTo(liveMap).bindPopup('Your selected FEU campus');
  liveMap.on('click',event=>{if(!originPickerActive)return;customOrigin={lat:event.latlng.lat,lng:event.latlng.lng};originPickerActive=false;originMode='map';$('#origin-mode').value='map';setOriginMarker();invalidateOriginRoute();updateOriginStatus();toast('Map origin selected. Tap Find route to plan from this point.');});
- if(gpsPosition)updateGpsMarker();if(customOrigin)setOriginMarker();renderTransportNote();setTimeout(()=>liveMap?.invalidateSize(),150);
+ if(gpsPosition)updateGpsMarker();if(customOrigin)setOriginMarker();renderTransportNote();
+ const mapElement=$('#map-host');
+ if(window.ResizeObserver){liveMapResizeObserver=new ResizeObserver(()=>liveMap?.invalidateSize({pan:false,debounceMoveend:true}));liveMapResizeObserver.observe(mapElement);}
+ requestAnimationFrame(()=>requestAnimationFrame(()=>liveMap?.invalidateSize({pan:false,debounceMoveend:true})));
 }
 function resetMapForCampus(){if(!liveMap)return;const dest=destinationCoords();campusMarker.setLatLng(dest);clearRouteOverlays();if(gpsPosition)liveMap.fitBounds([dest,[gpsPosition.lat,gpsPosition.lng]],{padding:[35,35]});else liveMap.setView(dest,14);renderTransportNote();}
 function updateGpsMarker(){if(!liveMap||!gpsPosition)return;const p=[gpsPosition.lat,gpsPosition.lng];if(!liveMarker){liveMarker=L.circleMarker(p,{radius:11,color:'#ffffff',weight:3,fillColor:'#1976d2',fillOpacity:1,className:'tt-gps-marker'}).addTo(liveMap).bindPopup('Your live position');liveMap.fitBounds([p,destinationCoords()],{padding:[45,45],maxZoom:16});}else liveMarker.setLatLng(p);}
