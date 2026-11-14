@@ -61,3 +61,12 @@ See `COMMUTE_PLANNER_V9.md` for direct mapped jeepney journeys plus walking dire
 - Preserved conservative fare/ETA handling: unsupported fares stay unavailable, rail topology is not presented as a timetable, and the historical Sakay archive never produces current directions.
 
 See `TRANSIT_PLANNER.md` for transit sources and limits. Deploy the complete `assets/transit/` folder with the web files. Run the checks in `TRANSIT_PLANNER.md` plus `node test-origin.js` before release. The cloud schedule payload and database schema are unchanged; `weekdays` is an optional addition that older single-day records do not need.
+
+## Device alarms and Home Screen installation
+
+- The dashboard and Settings include device-only leave-time alerts. Grant browser notification permission to receive a pop-up at the recommended departure time.
+- Alarm preferences stay in the current browser/device. The app must remain open for its page timer to trigger an alarm; a closed browser/app is not covered by a server push service.
+- On iPhone/iPad, use Safari's Share menu and choose **Add to Home Screen**. Notifications require opening the installed web app on iOS/iPadOS 16.4 or later.
+- On Android, use Chrome's **Install app** or **Add to Home screen** menu. The app shows the platform instructions the first time on a phone and keeps a manual guide in the dashboard and Settings.
+
+Run `node test-notifications.js` to check alarm timing and install/notification setup contracts.

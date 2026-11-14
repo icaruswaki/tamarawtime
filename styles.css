@@ -249,3 +249,16 @@ html[data-theme="night"] .period-button.active{background:#6de3c8!important;colo
 .jeepney-plan li b{font-size:13px}
 .jeepney-plan li span{font-size:12px;line-height:1.5}
 .jeepney-plan p{margin:13px 0 0}
+
+.device-setup-card{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:18px 0}
+.device-setup-card h2{margin:0 0 5px}
+.device-setup-card p{margin:0;max-width:620px}
+.device-setup-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;flex-shrink:0}
+#install-guide-dialog{width:min(700px,calc(100vw - 24px));max-height:calc(100dvh - 28px);overflow:auto}
+.install-guide-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.install-guide-grid section{padding:14px;border:1px solid var(--border);border-radius:13px;background:var(--surface-soft)}
+.install-guide-grid h3{margin:0 0 8px}
+.install-guide-grid ol{padding-left:21px;margin:0;display:grid;gap:7px;font-size:13px}
+.install-guide-grid p{margin:12px 0 0}
+.install-guide-grid .install-platform-current{border-color:var(--green);box-shadow:0 0 0 2px #55be8c55}
+@media(max-width:640px){.device-setup-card{align-items:stretch;flex-direction:column}.device-setup-actions{justify-content:flex-start}.install-guide-grid{grid-template-columns:1fr}}

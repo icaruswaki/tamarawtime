@@ -15,6 +15,8 @@ const defaults = {classes:[],tasks:[],settings:{name:'Tamaraw',campus:'FEU Tech'
 let state = structuredClone(defaults), currentPage='home', loadedUser=null, authCounter=0,localMode=false;
 let writeQueue = Promise.resolve(), tutorialIndex=0, gpsPosition=null,editingClassId=null;
 let recoveryPending=false;
+let alarmNotificationsEnabled=(()=>{try{return localStorage.getItem('tamaraw_alarm_notifications')==='true';}catch(_){return false;}})();
+let lastDepartureNotification='',pendingDepartureNotification='',serviceWorkerReady=null,deferredInstallPrompt=null;
 let scheduleMonth=null,scheduleSelectedKey='';
 let mapOriginText='', shownMapSignature='';
 let liveMap=null, liveMarker=null, campusMarker=null, liveRoute=null, liveMapResizeObserver=null, gpsWatchId=null, routeSeq=0, lastRouteAt=0;
@@ -34,6 +36,7 @@ function currentTravel(c,mode=state.settings.mode){
 function applyTheme(name){document.documentElement.dataset.theme=themeNames[name]?name:'forest';}
 function effectiveMode(c){return activeRouteEstimate && activeRouteEstimate.campus===(c?.campus||state.settings.campus)&&Date.now()-activeRouteEstimate.at<5*60*1000?activeRouteEstimate.mode:state.settings.mode;}
 function currentDeparture(c,travel=currentTravel(c,effectiveMode(c)),buffer=state.settings.buffer,prep=state.settings.prep){return departure(c,travel,buffer,prep);}
+function departureNotificationEligible(departureAt,now=Date.now()){return now>=departureAt&&now-departureAt<=5*60*1000;}
 function distanceMeters(a,b){const r=Math.PI/180,dl=(b.lng-a.lng)*r,dp=(b.lat-a.lat)*r,phi1=a.lat*r,phi2=b.lat*r,x=Math.sin(dp/2)**2+Math.cos(phi1)*Math.cos(phi2)*Math.sin(dl/2)**2;return 12742000*Math.asin(Math.sqrt(x));}
 const campusCoords={'FEU Tech':[14.6043,120.9884],'FEU Manila':[14.6046,120.9867],'FEU Diliman':[14.6994,121.0648],'FEU Alabang':[14.4195,121.0438]};
 const uid = () => globalThis.crypto?.randomUUID?.() ?? `tt-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -58,12 +61,77 @@ function nextClassDate(c){
  return new Date(best??now);
 }
 const upcoming = () => state.classes.flatMap(c=>classWeekdays(c).map(day=>({...c,day,when:nextClassDate({...c,day,weekdays:[day]})}))).sort((a,b)=>a.when-b.when);
+function isStandaloneApp(){return !!(window.matchMedia?.('(display-mode: standalone)')?.matches||navigator.standalone===true);}
+function isAppleMobile(){return /iPhone|iPad|iPod/.test(navigator.userAgent)||(/Macintosh/.test(navigator.userAgent)&&navigator.maxTouchPoints>1);}
+function deviceSetupCard(){
+ const installed=isStandaloneApp(),supported=typeof window.Notification!=='undefined'&&'serviceWorker'in navigator&&window.isSecureContext,permission=supported?Notification.permission:'unsupported';
+ let notificationText,notificationButton;
+ if(permission==='unsupported'){notificationText='This browser needs HTTPS and notification support for leave alerts.';notificationButton='<button class="secondary" type="button" disabled>Notifications unavailable</button>';}
+ else if(permission==='denied'){notificationText='Notifications are blocked for this site. Allow them in your browser or device settings, then return here.';notificationButton='<button class="secondary" type="button" data-action="notification-help">Notification settings help</button>';}
+ else if(alarmNotificationsEnabled&&permission==='granted'){notificationText='Leave-time alerts are on for this device. Keep Tamaraw Time open for the alarm to run.';notificationButton='<button class="secondary" type="button" data-action="disable-alarm-notifications">Turn alerts off</button>';}
+ else{notificationText=isAppleMobile()&&!installed?'On iPhone and iPad, add this web app to your Home Screen first, then open it there to enable notifications.':'Get a browser pop-up when your recommended departure time arrives. Keep Tamaraw Time open for the alarm to run.';notificationButton='<button class="primary" type="button" data-action="enable-alarm-notifications">Turn on alarm notifications</button>';}
+ const installButton=installed?'':`<button class="secondary" type="button" data-action="show-install-guide">Add to Home Screen</button>`;
+ return `<section class="card device-setup-card"><div><h2>Device reminders</h2><p class="mini muted">${esc(notificationText)}</p></div><div class="device-setup-actions">${notificationButton}${installButton}</div></section>`;
+}
+function ensureServiceWorker(){
+ if(!('serviceWorker'in navigator)||!window.isSecureContext)return Promise.resolve(null);
+ serviceWorkerReady??=navigator.serviceWorker.register('./service-worker.js').then(()=>navigator.serviceWorker.ready).catch(error=>{console.warn('Notifications need a service worker:',error);return null;});
+ return serviceWorkerReady;
+}
+function showInstallGuide(){
+ let dialog=$('#install-guide-dialog');
+ if(!dialog){dialog=document.createElement('dialog');dialog.id='install-guide-dialog';dialog.setAttribute('aria-labelledby','install-guide-title');document.body.append(dialog);}
+ const apple=isAppleMobile();
+ dialog.innerHTML=`<div class="modal-head"><h2 id="install-guide-title">Add Tamaraw Time to your Home Screen</h2><button type="button" class="iconbutton" data-close-install-guide aria-label="Close">×</button></div><p class="mini muted">Install the web app for quick access. The steps below work on iPhone/iPad and Android.</p><div class="install-guide-grid"><section><h3>iPhone or iPad</h3><ol><li>Open Tamaraw Time in <b>Safari</b>.</li><li>Tap the <b>Share</b> button (square with an upward arrow).</li><li>Scroll and tap <b>Add to Home Screen</b>.</li><li>Tap <b>Add</b>, then launch Tamaraw Time from the new icon.</li></ol><p class="mini muted">To enable alarm notifications, use the installed Home Screen app on iOS/iPadOS 16.4 or later, then tap “Turn on alarm notifications.”</p></section><section><h3>Android</h3><ol><li>Open Tamaraw Time in <b>Chrome</b>.</li><li>Tap the <b>⋮</b> menu in the top-right corner.</li><li>Tap <b>Install app</b> or <b>Add to Home screen</b>.</li><li>Confirm <b>Install</b> or <b>Add</b>, then open the new app icon.</li></ol><p class="mini muted">If Chrome shows an install banner, you can use that instead of the menu.</p></section></div><p class="mini muted">Alarm reminders are scheduled by this page and may not fire after the browser or installed app is fully closed.</p><div class="actions"><button type="button" class="secondary" data-close-install-guide>Close</button>${apple&&!isStandaloneApp()?'<button type="button" class="primary" data-install-guide-notifications>Got it</button>':''}</div>`;
+ dialog.querySelectorAll('[data-close-install-guide]').forEach(button=>button.addEventListener('click',()=>dialog.close()));
+ dialog.querySelectorAll('.install-guide-grid section').forEach((section,index)=>section.classList.toggle('install-platform-current',apple?index===0:index===1));
+ dialog.showModal();$('#install-guide-title').focus();
+}
+function maybePromptInstallGuide(){
+ if(isStandaloneApp()||(!isAppleMobile()&&!/Android/i.test(navigator.userAgent)))return;
+ try{if(localStorage.getItem('tamaraw_install_guide_seen')==='true')return;localStorage.setItem('tamaraw_install_guide_seen','true');}catch(_){return;}
+ setTimeout(()=>{if(!isStandaloneApp()&&!$('#tutorial-dialog')?.open&&!$('#install-guide-dialog')?.open)showInstallGuide();},800);
+}
+async function enableAlarmNotifications(){
+ if(isAppleMobile()&&!isStandaloneApp()){showInstallGuide();toast('Add Tamaraw Time to your Home Screen, then enable alerts from the installed app.');return;}
+ if(typeof window.Notification==='undefined'||!('serviceWorker'in navigator)||!window.isSecureContext){toast('Notifications require a supported browser and a secure HTTPS connection.');return;}
+ let permission=Notification.permission;
+ if(permission==='default'){try{permission=await Notification.requestPermission();}catch(_){toast('The browser could not request notification permission.');return;}}
+ if(permission!=='granted'){toast(permission==='denied'?'Allow notifications for Tamaraw Time in your browser or device settings.':'Notification permission was not granted.');render();return;}
+ const registration=await ensureServiceWorker();
+ if(!registration){toast('Could not start notification support. Reload the app and try again.');return;}
+ alarmNotificationsEnabled=true;try{localStorage.setItem('tamaraw_alarm_notifications','true');}catch(_){toast('This browser could not save the alert preference.');alarmNotificationsEnabled=false;}
+ render();toast(alarmNotificationsEnabled?'Leave-time notifications are on for this device.':'Could not save the alert setting.');
+}
+async function installAppOrShowGuide(){
+ if(isStandaloneApp()){toast('Tamaraw Time is already installed.');return;}
+ if(!deferredInstallPrompt){showInstallGuide();return;}
+ const prompt=deferredInstallPrompt;deferredInstallPrompt=null;
+ try{await prompt.prompt();const choice=await prompt.userChoice;if(choice?.outcome==='accepted')toast('Tamaraw Time is being installed.');else showInstallGuide();}
+ catch(_){showInstallGuide();}
+}
+async function maybeShowDepartureNotification(next,departureAt){
+ if((!loadedUser&&!localMode)||!alarmNotificationsEnabled||typeof window.Notification==='undefined'||Notification.permission!=='granted')return;
+ if(!departureNotificationEligible(departureAt))return;
+ const key=`${next.id||next.name}|${next.when.getTime()}|${departureAt}`;
+ if(key===lastDepartureNotification||key===pendingDepartureNotification)return;
+ try{if(localStorage.getItem('tamaraw_last_departure_notification')===key){lastDepartureNotification=key;return;}}catch(_){}
+ pendingDepartureNotification=key;
+ try{
+  const registration=await ensureServiceWorker();if(!registration)return;
+  const date=new Date(departureAt),departTime=date.toLocaleTimeString('en-PH',{hour:'numeric',minute:'2-digit',hour12:true,timeZone:'Asia/Manila'});
+  await registration.showNotification('Time to leave for class',{body:`Leave now for ${next.name}. Recommended departure: ${departTime}.`,icon:new URL('./assets/icon-192.png',location.href).href,badge:new URL('./assets/favicon.png',location.href).href,tag:`tamaraw-departure-${next.id||date.getTime()}`,renotify:false,requireInteraction:true,data:{url:new URL('./',location.href).href}});
+  lastDepartureNotification=key;try{localStorage.setItem('tamaraw_last_departure_notification',key);}catch(_){}
+ }catch(error){console.warn('Could not show departure notification:',error);}
+ finally{pendingDepartureNotification='';}
+}
 function refreshDepartureCountdown(){
  if(activeRouteEstimate&&Date.now()-activeRouteEstimate.at>=5*60*1000){activeRouteEstimate=null;const travel=$('#trip-travel');if(travel?.dataset.routeEstimate==='true'){travel.value=state.settings.travel;delete travel.dataset.routeEstimate;updateCommute();}}
+ const next=upcoming()[0],departureAt=next?next.when.getTime()-(currentTravel(next,effectiveMode(next))+Number(state.settings.buffer||0))*60000:null;
+ if(next)void maybeShowDepartureNotification(next,departureAt);
  const node=$('#leave-countdown');if(!node)return;
- const next=upcoming()[0];if(!next){node.textContent='Add your first class to calculate your leave time.';return;}
- const departAt=next.when.getTime()-(currentTravel(next,effectiveMode(next))+Number(state.settings.buffer||0))*60000;
- const seconds=Math.ceil((departAt-Date.now())/1000);
+ if(!next){node.textContent='Add your first class to calculate your leave time.';return;}
+ const seconds=Math.ceil((departureAt-Date.now())/1000);
  if(seconds>0){const h=Math.floor(seconds/3600),m=Math.ceil((seconds%3600)/60);node.textContent=h?`⏳ Leave in ${h} hr ${m} min`:`⏳ Leave in ${m} min`;node.dataset.urgency=seconds<1800?'soon':'normal';}
  else{const elapsed=Math.ceil(-seconds/60);node.textContent=elapsed<180?`⚠️ Recommended departure ${elapsed} min ago`:'⚠️ Scheduled departure time passed';node.dataset.urgency='late';}
 }
@@ -149,6 +217,7 @@ function render(){
  if(currentPage==='commute'){const panel=document.createElement('section');panel.className='card transit-reference';panel.innerHTML='<h2>Stations & route references</h2><p class="mini muted">Reviewed rail stations and historical transit records are reference data, not confirmation of current service.</p><button type="button" class="secondary" data-action="show-rail-directory">Browse reviewed rail stations</button> <button type="button" class="secondary" data-action="show-historical">Browse historical transit routes</button><div id="transit-reference-results"></div>';$('#content').append(panel);}
  if(currentPage==='settings'){const form=$('#settings-form'),defaultsPanel=document.createElement('fieldset');defaultsPanel.className='field campus-travel-defaults';defaultsPanel.innerHTML=`<legend>Default travel time by campus (minutes)</legend><div class="campus-default-grid">${Object.keys(campusOptions).map(c=>`<label>${esc(c)}<input name="campusTravel:${esc(c)}" type="number" min="1" max="480" value="${esc(state.settings.campusTravel?.[c]||'')}" placeholder="Use general default"></label>`).join('')}</div>`;form.insertBefore(defaultsPanel,form.querySelector('button[type="submit"]'));}
  if(localMode&&currentPage==='settings'){const card=$('#content .stack .card');card.querySelector('h2').textContent='Device planner';card.querySelector('p').textContent='Your schedule and preferences stay in this browser on this device. This data is separate from cloud accounts and is not sent to the research database.';card.querySelector('[data-action="change-password"]').remove();card.querySelector('[data-action="refresh-cloud"]').textContent='Reload device data';}
+ if(currentPage==='home'||currentPage==='settings'){const holder=document.createElement('div');holder.innerHTML=deviceSetupCard();const panel=holder.firstElementChild;if(currentPage==='home'){const anchor=$('#content .section-head');if(anchor)anchor.before(panel);else $('#content').prepend(panel);}else $('#content .stack').append(panel);}
  void $('#content').offsetWidth;
  $('#content').classList.add('tt-enter');
  refreshDepartureCountdown();
@@ -387,6 +456,10 @@ $('#content').addEventListener('input',event=>{if(event.target.id==='rail-direct
 $('#content').addEventListener('click',async event=>{
  const button=event.target.closest('button[data-action]');if(!button)return;
  const action=button.dataset.action;
+ if(action==='enable-alarm-notifications'){await enableAlarmNotifications();return;}
+ if(action==='disable-alarm-notifications'){alarmNotificationsEnabled=false;try{localStorage.setItem('tamaraw_alarm_notifications','false');}catch(_){}render();toast('Leave-time notifications are off.');return;}
+ if(action==='show-install-guide'){await installAppOrShowGuide();return;}
+ if(action==='notification-help'){toast('Open your browser or device settings, find Tamaraw Time under Site settings or Notifications, and allow alerts.');return;}
  if(action==='add-class'){openClassModal(null,currentPage==='schedule'?new Date(`${scheduleSelectedKey}T00:00:00Z`).getUTCDay():undefined);return;}
  if(action==='edit-class'){openClassModal(button.dataset.id);return;}
  if(action==='select-date'){scheduleSelectedKey=button.dataset.date;const d=new Date(`${scheduleSelectedKey}T00:00:00Z`);scheduleMonth=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),1));render();return;}
@@ -444,6 +517,7 @@ $('#tutorial-prev').addEventListener('click',()=>{if(tutorialIndex>0){tutorialIn
 $('#tutorial-close').addEventListener('click',finishTutorial);
 $('#tutorial-skip').addEventListener('click',finishTutorial);
 $('#tutorial-dialog').addEventListener('cancel',()=>{state.onboarding.finished=true;saveToCloud();});
+$('#tutorial-dialog').addEventListener('close',()=>{if(state.onboarding.finished)maybePromptInstallGuide();});
 function authMode(mode){
  const signup=mode==='signup';$('#auth-form').dataset.mode=mode;
  $('#auth-submit').textContent=signup?'Create account':'Sign in';
@@ -485,7 +559,7 @@ function showAuth(message=''){
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&gpsWatchId!==null){stopGps();cancelRoadRoute();const output=$('#gps-output');if(output)output.textContent='GPS stopped while the page was in the background. Start tracking again when you return.';}});
 if($('#remember-me')){$('#remember-me').checked=CloudStore.getRemember?.()??true;$('#remember-me').addEventListener('change',event=>CloudStore.setRemember?.(event.target.checked));}
 $('#forgot-password')?.addEventListener('click',()=>openPasswordDialog('request'));
-$('#device-mode-button')?.addEventListener('click',()=>{let p={};try{p=JSON.parse(localStorage.getItem('tamaraw_local_planner')||'{}');}catch(_){toast('Saved device data could not be read.');return;}localMode=true;loadedUser='local-device';state={classes:Array.isArray(p.classes)?p.classes:[],tasks:Array.isArray(p.tasks)?p.tasks:[],settings:{...defaults.settings,...(p.settings||{})},onboarding:{finished:!!p?.onboarding?.finished}};applyTheme(state.settings.theme);$('#account-email').textContent='This device';$('#signout-button').textContent='Exit planner';$('#auth-screen').hidden=true;$('#app-layout').hidden=false;navigate('home');if(!state.onboarding.finished)setTimeout(showTutorial,120);});
+$('#device-mode-button')?.addEventListener('click',()=>{let p={};try{p=JSON.parse(localStorage.getItem('tamaraw_local_planner')||'{}');}catch(_){toast('Saved device data could not be read.');return;}localMode=true;loadedUser='local-device';state={classes:Array.isArray(p.classes)?p.classes:[],tasks:Array.isArray(p.tasks)?p.tasks:[],settings:{...defaults.settings,...(p.settings||{})},onboarding:{finished:!!p?.onboarding?.finished}};applyTheme(state.settings.theme);$('#account-email').textContent='This device';$('#signout-button').textContent='Exit planner';$('#auth-screen').hidden=true;$('#app-layout').hidden=false;navigate('home');if(!state.onboarding.finished)setTimeout(showTutorial,120);else maybePromptInstallGuide();});
 function isRecoveryCallback(){return new URLSearchParams(location.search).has('recovery')||new URLSearchParams(location.hash.slice(1)).get('type')==='recovery';}
 function beginRecovery(){recoveryPending=true;showAuth('Choose a new password for your Tamaraw Time account.');$('#auth-form').hidden=true;$('#auth-mode-toggle').hidden=true;if($('#forgot-password'))$('#forgot-password').hidden=true;if($('#device-mode-button'))$('#device-mode-button').hidden=true;openPasswordDialog('recovery');}
 async function enterApp(user){
@@ -499,7 +573,7 @@ async function enterApp(user){
   applyTheme(state.settings.theme);activeRouteEstimate=null;
   loadedUser=user.id;stopGps();gpsPosition=null;mapOriginText='';shownMapSignature='';
   $('#account-email').textContent=user.email||'Student account';$('#auth-screen').hidden=true;$('#app-layout').hidden=false;
-  navigate('home');if(!state.onboarding.finished)setTimeout(showTutorial,120);
+  navigate('home');if(!state.onboarding.finished)setTimeout(showTutorial,120);else maybePromptInstallGuide();
  }catch(err){showAuth('Could not load cloud data: '+(err.message||err)+'. Check your Supabase setup.');}
 }
 async function refreshCloud(){
@@ -530,8 +604,10 @@ $('#signout-button').addEventListener('click',async()=>{
  if(error){toast('Sign out failed: '+error.message);return;}
  stopGps();++authCounter;showAuth('You are signed out. Your classes are saved online.');
 });
+window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();deferredInstallPrompt=event;});
+window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;if(currentPage==='home'||currentPage==='settings')render();});
 async function boot(){
- formatClock();setInterval(formatClock,1000);authMode('login');
+ formatClock();setInterval(formatClock,1000);authMode('login');void ensureServiceWorker();
  if(!CloudStore.configured){showAuth();return;}
  CloudStore.db.auth.onAuthStateChange((event,session)=>{
   if(event==='PASSWORD_RECOVERY'){beginRecovery();}
