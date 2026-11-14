@@ -526,7 +526,7 @@ function authMode(mode){
  $('#auth-submit').textContent=signup?'Create account':'Sign in';
  $('#auth-heading').textContent=signup?'Create your Tamaraw Time account':'Welcome back, Tamaraw!';
  $('#auth-mode-toggle').textContent=signup?'Already have an account? Sign in':'New here? Create an account';
- $('#auth-consent').hidden=!signup;$('#study-consent').required=signup;if($('#remember-row'))$('#remember-row').hidden=signup;if($('#forgot-password'))$('#forgot-password').hidden=signup;
+ $('#auth-consent').hidden=!signup;$('#study-consent').required=signup;if($('#auth-options'))$('#auth-options').hidden=signup;
  $('#auth-password').autocomplete=signup?'new-password':'current-password';$('#auth-message').textContent='';
 }
 function openPasswordDialog(mode){

@@ -27,7 +27,8 @@
 .auth-brand{display:flex;align-items:center;gap:12px;margin-bottom:25px}
 .auth-brand strong{font-size:17px;letter-spacing:1px}.auth-brand small{display:block;font-size:12px;color:#798e82}
 .auth-card h1{margin:0;font-size:27px;line-height:1.2}.auth-subtitle{color:var(--muted);margin:9px 0 25px;font-size:14px}
-.auth-submit{width:100%;margin:4px 0 12px}.auth-mode-toggle{display:block;margin:0 auto 10px;padding:9px}
+.auth-options{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 10px;min-height:24px}.auth-options .remember-row{margin:0;min-width:0}.auth-options .remember-row label{display:inline-flex;align-items:center;gap:8px;font-size:13px;line-height:1.35;cursor:pointer}.auth-options .remember-row input{width:16px;height:16px;flex:none;margin:0;accent-color:var(--forest)}.auth-options #forgot-password{margin:0;padding:2px 0;font-size:13px;white-space:nowrap;text-decoration:underline;text-underline-offset:3px}.auth-options :focus-visible{outline:2px solid var(--green);outline-offset:3px;border-radius:4px}
+.auth-submit{width:100%;margin:0 0 12px}.auth-mode-toggle{display:block;margin:0 auto 10px;padding:9px}
 #auth-message:not(:empty){background:#fff2e3;border-radius:10px;color:#8a421b;padding:12px;font-size:13px;overflow-wrap:anywhere}
 .auth-card .field input{font-size:16px}.pilot-consent{font-size:12px;color:#647568;padding:6px 0 16px}.pilot-consent label{display:flex;gap:9px;align-items:flex-start}.pilot-consent input{margin-top:3px;flex-shrink:0}
 .account-email{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;max-width:180px;white-space:nowrap}
@@ -99,6 +100,7 @@ body:has(#commute-experience) #content{height:100%;margin:0!important}
 .commute-experience .leaflet-top.leaflet-left{left:auto;right:14px;top:68px}
 @media(max-width:740px){body:has(#commute-experience) .main{height:100dvh;padding:0}.commute-experience{height:100dvh;min-height:0}.commute-map{inset:0 0 22vh!important;height:auto!important}.commute-topline{top:max(9px,env(safe-area-inset-top));left:10px;right:10px}.commute-topline>b{font-size:10px;padding:8px 11px}.commute-topline .secondary{font-size:12px;padding:9px 11px}.commute-map-credit{display:block;position:absolute;right:0;top:48px;background:#ffffffed;padding:6px 9px}.commute-panel{top:auto;bottom:0;left:0;width:100%;height:min(58dvh,560px);min-height:330px;border-radius:20px 20px 0 0;border:0;padding:17px 16px calc(16px + env(safe-area-inset-bottom));box-shadow:0 -8px 28px #10251f25}.commute-panel-head{margin-bottom:11px}.commute-panel-head h2{font-size:19px}.commute-panel .field input,.commute-panel .field select{padding:10px}.commute-panel .commute-routine{margin-top:10px}.commute-experience .leaflet-top.leaflet-left{top:57px;right:8px}.commute-experience .leaflet-bottom.leaflet-right{display:none}.commute-experience .leaflet-control-zoom{margin-right:0!important}.commute-experience .leaflet-control-container{display:block!important}}
 @media(max-width:390px){.commute-panel{padding-left:13px;padding-right:13px}.commute-fields{gap:7px}.commute-actions button{font-size:11px}.commute-panel-head h2{font-size:18px}}
+@media(max-width:380px){.auth-options{gap:7px}.auth-options .remember-row label,.auth-options #forgot-password{font-size:12px}}
 
 /* Tamaraw Time v7 — visual guidance, unmistakable time controls, and four themes */
 :root{
