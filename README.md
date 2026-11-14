@@ -39,7 +39,7 @@ Open `demo.html` via a local web server (e.g., `python -m http.server 8000`, bro
 ## Branding restored (v7.1)
 
 - The original logo is now shown in the sign-in panel and sidebar.
-- Upload **tamaraw-logo.png** and **favicon.ico** alongside index.html, styles.css, app.js, cloud-config.js and cloud-store.js.
+- Upload **tamaraw-logo.png**, **favicon.ico**, **favicon.png**, **apple-touch-icon.png**, and the **icon-192.png** / **icon-512.png** install icons alongside the web app files.
 - The logo/favicons use relative URLs, suitable for a GitHub Pages repository subpath.
 - If the old tab icon persists, hard refresh (Ctrl+Shift+R) or open a private window.
 - For Flutter, add the PNG under assets/images and list it in pubspec.yaml; Flutter launcher icons require separate platform icon generation.
